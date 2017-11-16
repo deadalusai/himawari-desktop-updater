@@ -1,0 +1,12 @@
+[package]
+name = "himawari-desktop-update"
+version = "0.1.0"
+authors = ["Benjamin Fox <benjaminf@intergen.co.nz>"]
+
+[dependencies]
+reqwest = "*"
+serde = "1.0"
+serde_json = "1.0"
+serde_derive = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+image = "0.17.0"
