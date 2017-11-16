@@ -17,7 +17,7 @@ use std::process::{exit};
 use chrono::prelude::*;
 use chrono::offset::{Utc};
 
-use image::{GenericImage, ImageBuffer, ImageFormat, Rgba, load_from_memory_with_format};
+use image::{GenericImage, ImageBuffer, ImageFormat, load_from_memory_with_format};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct LatestInfo {
@@ -88,13 +88,16 @@ fn main() {
     }
 
     // Output buffer
-    let mut canvas: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width * level, width * level);
+    let mut canvas = ImageBuffer::new(width * level, width * level);
 
     // Download each image into a temporary buffer and copy it into the buffer
     for y in 0..level {
         for x in 0..level {
 
-            let block_url = format!("http://himawari8-dl.nict.go.jp/himawari8/img/D531106/{}d/{}/{}/{}/{}/{}_{}_{}.png", level, width, year, month, day, time, x, y);
+            let block_url = format!(
+                "http://himawari8-dl.nict.go.jp/himawari8/img/D531106/{level}d/{width}/{year}/{month}/{day}/{time}_{x}_{y}.png", 
+                level = level, width = width, year = year, month = month, day = day, time = time, x = x, y = y
+            );
 
             print!("Downloading {}...", block_url);
 
