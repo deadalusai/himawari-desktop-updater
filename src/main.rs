@@ -9,8 +9,10 @@ extern crate chrono;
 extern crate image;
 
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::io::Read;
-use std::path::Path;
+use std::io::{Read};
+use std::env::{current_dir};
+use std::fs::{DirBuilder};
+use std::process::{exit};
 
 use chrono::prelude::*;
 use chrono::offset::{Utc};
@@ -28,10 +30,19 @@ fn main() {
     // TODO:
     // --force
     // --store-latest-only
+    // --output-dir          (default: pwd)
 
-    // let force = true;
+    // If set, overwrite output image
+    let force = true;
+
+    // If set, write only to "latest.png"
     let store_latest_only = true;
 
+    // Directory to write images out to
+    let output_dir = current_dir().unwrap();
+
+    
+    // Download and parse the "latest.json" metadata
     let cache_buster = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
     let url = format!("http://himawari8-dl.nict.go.jp/himawari8/img/D531106/latest.json?uid={}", cache_buster);
@@ -53,26 +64,33 @@ fn main() {
     let month = latest_date.format("%m");
     let day   = latest_date.format("%d");
 
-    // Create the folder My Pictures\Himawari\ if it doesnt exist
-    // TODO
+    // Create the output folder if it doesnt exist (e.g. "My Pictures\Himawari\")
+    if !output_dir.exists() {
+        DirBuilder::new()
+            .recursive(true)
+            .create(&output_dir)
+            .unwrap();
+    }
+
+    let mut output_file_path = output_dir.clone();
 
     // The filename that will be written
-    let outfile =
-        if store_latest_only {
-            format!("latest.jpg")
-        } else {
-            format!("{}{}{}_{}.jpg", year, month, day, time)
-        };
-
-    let outfile = Path::new(&outfile);
+    if store_latest_only {
+        output_file_path.push("latest.png");
+    } else {
+        output_file_path.push(format!("{}{}{}_{}.png", year, month, day, time));
+    }
 
     // Have we already downloaded this one?
-    // if !store_latest_only && !force && file_exists(&outfile) {
-    //     return;
-    // }
+    if !store_latest_only && !force && output_file_path.exists() {
+        println!("Output file {:?} already exists. Use --force to overwrite", output_file_path);
+        exit(1);
+    }
 
+    // Output buffer
     let mut canvas: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width * level, width * level);
 
+    // Download each image into a temporary buffer and copy it into the buffer
     for y in 0..level {
         for x in 0..level {
 
@@ -87,13 +105,10 @@ fn main() {
             response.read_to_end(&mut image_data).unwrap();
 
             let block = load_from_memory_with_format(&image_data, ImageFormat::PNG).unwrap();
-
             canvas.copy_from(&block, x * width, y * width);
-
-            println!(" Done");
         }
     }
 
-    println!("Writing out to {:?}", outfile);
-    canvas.save(outfile).unwrap();
+    println!("Writing out to {:?}", output_file_path);
+    canvas.save(output_file_path).unwrap();
 }
