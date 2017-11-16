@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+// #![windows_subsystem = "windows"]
 
 extern crate reqwest;
 #[macro_use]
@@ -7,17 +7,21 @@ extern crate serde;
 extern crate serde_json;
 extern crate chrono;
 extern crate image;
+extern crate clap;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{Read};
 use std::env::{current_dir};
 use std::fs::{DirBuilder};
 use std::process::{exit};
+use std::path::{Path};
 
 use chrono::prelude::*;
 use chrono::offset::{Utc};
 
 use image::{GenericImage, ImageBuffer, ImageFormat, load_from_memory_with_format};
+
+use clap::{App, Arg};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct LatestInfo {
@@ -27,21 +31,38 @@ struct LatestInfo {
 
 fn main() {
     
-    // TODO:
-    // --force
-    // --store-latest-only
-    // --output-dir          (default: pwd)
+    let args = 
+        App::new("himawari-desktop-updater")
+            .version("0.1")
+            .about("Downloads the latest photo from the Himawari-8 geo-synchronous satellite, and sets it as your desktop background (TODO)")
+            .author("Benjamin Fox")
 
-    // If set, overwrite output image
-    let force = true;
+            .arg(Arg::with_name("store-latest-only")
+                .long("store-latest-only")
+                .help("If set, writes the output to a single file named 'latest.png'"))
+
+            .arg(Arg::with_name("force")
+                .long("force")
+                .help("If set, allow the output file to be overwritten"))
+
+            .arg(Arg::with_name("output-dir")
+                .long("output-dir")
+                .help("Set the output directory")
+                .value_name("OUTPUT_DIR"))
+
+            .get_matches();
 
     // If set, write only to "latest.png"
-    let store_latest_only = true;
+    let store_latest_only = args.is_present("store-latest-only");
+
+    // If set, overwrite output image
+    let force = args.is_present("force");
 
     // Directory to write images out to
-    let output_dir = current_dir().unwrap();
+    let output_dir = args.value_of("output-dir")
+                        .map(|s| Path::new(s).to_path_buf())
+                        .unwrap_or_else(|| current_dir().unwrap());
 
-    
     // Download and parse the "latest.json" metadata
     let cache_buster = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
@@ -81,9 +102,11 @@ fn main() {
         output_file_path.push(format!("{}{}{}_{}.png", year, month, day, time));
     }
 
+    println!("Writing output to {}", output_file_path.to_string_lossy());
+
     // Have we already downloaded this one?
     if !store_latest_only && !force && output_file_path.exists() {
-        println!("Output file {:?} already exists. Use --force to overwrite", output_file_path);
+        println!("Output file {} already exists. Use --force to overwrite", output_file_path.to_string_lossy());
         exit(1);
     }
 
@@ -99,7 +122,7 @@ fn main() {
                 level = level, width = width, year = year, month = month, day = day, time = time, x = x, y = y
             );
 
-            print!("Downloading {}...", block_url);
+            println!("Downloading {}...", block_url);
 
             let mut response = reqwest::get(&block_url).unwrap();
             assert!(response.status().is_success(), "Request {} failed with {}", block_url, response.status());
@@ -112,6 +135,6 @@ fn main() {
         }
     }
 
-    println!("Writing out to {:?}", output_file_path);
+    println!("Writing out to {}", output_file_path.to_string_lossy());
     canvas.save(output_file_path).unwrap();
 }
