@@ -104,10 +104,24 @@ fn main () {
             info!("Done");
         },
         Err(app_err) => {
-            error!("Failed: {}", app_err);
+            error!("{}", app_err);
             exit(1);
         }
     }
+}
+
+fn download_string (url: &str) -> Result<String, AppErr> {
+    let mut response = reqwest::get(url)?.error_for_status()?;
+    let mut content = String::new();
+    response.read_to_string(&mut content)?;
+    Ok(content)
+}
+
+fn download_bytes (url: &str) -> Result<Vec<u8>, AppErr> {
+    let mut response = reqwest::get(url)?.error_for_status()?;
+    let mut data = Vec::new();
+    response.read_to_end(&mut data)?;
+    Ok(data)
 }
 
 fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Result<(), AppErr> {
@@ -117,14 +131,7 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
 
     let url = format!("http://himawari8-dl.nict.go.jp/himawari8/img/D531106/latest.json?uid={}", cache_buster);
 
-    let mut response = reqwest::get(&url)?;
-    if !response.status().is_success() {
-        error!("Unable to download latest.json: {}", response.status());
-        exit(1);
-    }
-
-    let mut json_content = String::new();
-    response.read_to_string(&mut json_content)?;
+    let json_content = download_string(&url)?;
 
     let latest_info = serde_json::from_str::<LatestInfo>(&json_content)?;
     let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?;
@@ -170,23 +177,17 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
         .into_par_iter()
         .filter_map(|(x, y)| {
 
-            let url = format!(
-                "http://himawari8-dl.nict.go.jp/himawari8/img/D531106/{level}d/{width}/{year}/{month}/{day}/{time}_{x}_{y}.png", 
-                level = level, width = width, year = year, month = month, day = day, time = time, x = x, y = y
-            );
+            let url = format!("http://himawari8-dl.nict.go.jp/himawari8/img/D531106/{}d/{}/{}/{}/{}/{}_{}_{}.png", level, width, year, month, day, time, x, y);
 
             info!("Downloading chunk {}...", url);
 
-            let mut response = reqwest::get(&url).unwrap();
-            if !response.status().is_success() {
-                warn!("Unable to download chunk: {}", response.status());
-                return None;
-            }
-
-            let mut image_data = Vec::new();
-            response.read_to_end(&mut image_data).unwrap();
-
-            Some((x, y, image_data))
+            match download_bytes(&url) {
+                Ok(image_data) => Some((x, y, image_data)),
+                Err(err) => {
+                    warn!("{}", err);
+                    None
+                }
+            }            
         })
         .collect();
 
