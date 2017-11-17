@@ -1,4 +1,5 @@
-#![windows_subsystem = "windows"]
+// NOTE: Set "windows" subsystem only for release builds
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 extern crate reqwest;
 #[macro_use]
@@ -12,12 +13,15 @@ extern crate clap;
 extern crate log;
 extern crate simple_logging;
 
+pub mod app_error;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{Read};
 use std::env::{current_dir};
 use std::fs::{DirBuilder};
 use std::process::{exit};
-use std::path::{Path};
+use std::path::{Path, PathBuf};
+use std::io;
 
 use chrono::prelude::*;
 use chrono::offset::{Utc};
@@ -26,10 +30,23 @@ use image::{GenericImage, ImageBuffer, ImageFormat, load_from_memory_with_format
 
 use clap::{App, Arg};
 
+use app_error::{AppErr};
+
 #[derive(Serialize, Deserialize, Debug)]
 struct LatestInfo {
     date: String,
     file: String
+}
+
+#[cfg(debug_assertions)]
+fn initialize_logger () -> io::Result<()> {
+    simple_logging::log_to_stderr(log::LogLevelFilter::Info)
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+}
+
+#[cfg(not(debug_assertions))]
+fn initialize_logger () -> io::Result<()> {
+    simple_logging::log_to_file("himawari-desktop-updater.log", log::LogLevelFilter::Info)
 }
 
 fn main() {
@@ -67,30 +84,44 @@ fn main() {
                         .unwrap_or_else(|| current_dir().unwrap());
 
     // Initialize logger...
-    simple_logging::log_to_file("himawari-desktop-updater.log", log::LogLevelFilter::Info).unwrap();
-    // simple_logging::log_to_stderr(log::LogLevelFilter::Info).unwrap();
+    initialize_logger().unwrap();
 
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);
     info!("force: {}", force);
     info!("output_dir: {}", output_dir.to_string_lossy());
+    
+    let result = main_impl(store_latest_only, force, output_dir);
+
+    match result {
+        Ok(_) => {
+            info!("Done");
+        },
+        Err(app_err) => {
+            error!("Failed: {}", app_err);
+            exit(1);
+        }
+    }
+}
+
+fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Result<(), AppErr> {
 
     // Download and parse the "latest.json" metadata
-    let cache_buster = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let cache_buster = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
     let url = format!("http://himawari8-dl.nict.go.jp/himawari8/img/D531106/latest.json?uid={}", cache_buster);
 
-    let mut response = reqwest::get(&url).unwrap();
+    let mut response = reqwest::get(&url)?;
     if !response.status().is_success() {
         error!("Unable to download latest.json: {}", response.status());
         exit(1);
     }
 
     let mut json_content = String::new();
-    response.read_to_string(&mut json_content).unwrap();
+    response.read_to_string(&mut json_content)?;
 
-    let latest_info = serde_json::from_str::<LatestInfo>(&json_content).unwrap();
-    let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S").unwrap();
+    let latest_info = serde_json::from_str::<LatestInfo>(&json_content)?;
+    let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?;
 
     let width = 550;
     let level = 4; // Level can be 4, 8, 16, 20
@@ -103,8 +134,7 @@ fn main() {
     if !output_dir.exists() {
         DirBuilder::new()
             .recursive(true)
-            .create(&output_dir)
-            .unwrap();
+            .create(&output_dir)?;
     }
 
     let mut output_file_path = output_dir.clone();
@@ -138,22 +168,22 @@ fn main() {
 
             info!("Downloading chunk {}...", url);
 
-            let mut response = reqwest::get(&url).unwrap();
+            let mut response = reqwest::get(&url)?;
             if !response.status().is_success() {
                 warn!("Unable to download chunk: {}", response.status());
                 continue;
             }
 
             let mut image_data = Vec::new();
-            response.read_to_end(&mut image_data).unwrap();
+            response.read_to_end(&mut image_data)?;
 
-            let block = load_from_memory_with_format(&image_data, ImageFormat::PNG).unwrap();
+            let block = load_from_memory_with_format(&image_data, ImageFormat::PNG)?;
             canvas.copy_from(&block, x * width, y * width);
         }
     }
 
     info!("Writing out to {}", output_file_path.to_string_lossy());
-    canvas.save(output_file_path).unwrap();
+    canvas.save(output_file_path)?;
 
-    info!("Done");
+    Ok(())
 }
