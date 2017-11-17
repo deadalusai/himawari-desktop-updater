@@ -11,3 +11,5 @@ serde_derive = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 image = "0.17.0"
 clap = "2.27.1"
+log = "0.3"
+simple-logging = "1.0.1"

@@ -1,4 +1,4 @@
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 extern crate reqwest;
 #[macro_use]
@@ -8,6 +8,9 @@ extern crate serde_json;
 extern crate chrono;
 extern crate image;
 extern crate clap;
+#[macro_use]
+extern crate log;
+extern crate simple_logging;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{Read};
@@ -63,19 +66,30 @@ fn main() {
                         .map(|s| Path::new(s).to_path_buf())
                         .unwrap_or_else(|| current_dir().unwrap());
 
+    // Initialize logger...
+    simple_logging::log_to_file("himawari-desktop-updater.log", log::LogLevelFilter::Info).unwrap();
+    // simple_logging::log_to_stderr(log::LogLevelFilter::Info).unwrap();
+
+    info!("Starting...");
+    info!("store-latest-only: {}", store_latest_only);
+    info!("force: {}", force);
+    info!("output_dir: {}", output_dir.to_string_lossy());
+
     // Download and parse the "latest.json" metadata
     let cache_buster = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
     let url = format!("http://himawari8-dl.nict.go.jp/himawari8/img/D531106/latest.json?uid={}", cache_buster);
 
     let mut response = reqwest::get(&url).unwrap();
-    assert!(response.status().is_success(), "Request {} failed with {}", url, response.status());
+    if !response.status().is_success() {
+        error!("Unable to download latest.json: {}", response.status());
+        exit(1);
+    }
 
     let mut json_content = String::new();
     response.read_to_string(&mut json_content).unwrap();
 
-    let latest_info: LatestInfo = serde_json::from_str(&json_content).unwrap();
-
+    let latest_info = serde_json::from_str::<LatestInfo>(&json_content).unwrap();
     let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S").unwrap();
 
     let width = 550;
@@ -97,16 +111,16 @@ fn main() {
 
     // The filename that will be written
     if store_latest_only {
-        output_file_path.push("latest.png");
+        output_file_path.push("himawari8_latest.png");
     } else {
-        output_file_path.push(format!("{}{}{}_{}.png", year, month, day, time));
+        output_file_path.push(format!("himawari8_{}{}{}_{}.png", year, month, day, time));
     }
 
-    println!("Writing output to {}", output_file_path.to_string_lossy());
+    info!("Writing output to {}", output_file_path.to_string_lossy());
 
     // Have we already downloaded this one?
     if !store_latest_only && !force && output_file_path.exists() {
-        println!("Output file {} already exists. Use --force to overwrite", output_file_path.to_string_lossy());
+        error!("Output file {} already exists. Use --force to overwrite", output_file_path.to_string_lossy());
         exit(1);
     }
 
@@ -117,15 +131,18 @@ fn main() {
     for y in 0..level {
         for x in 0..level {
 
-            let block_url = format!(
+            let url = format!(
                 "http://himawari8-dl.nict.go.jp/himawari8/img/D531106/{level}d/{width}/{year}/{month}/{day}/{time}_{x}_{y}.png", 
                 level = level, width = width, year = year, month = month, day = day, time = time, x = x, y = y
             );
 
-            println!("Downloading {}...", block_url);
+            info!("Downloading chunk {}...", url);
 
-            let mut response = reqwest::get(&block_url).unwrap();
-            assert!(response.status().is_success(), "Request {} failed with {}", block_url, response.status());
+            let mut response = reqwest::get(&url).unwrap();
+            if !response.status().is_success() {
+                warn!("Unable to download chunk: {}", response.status());
+                continue;
+            }
 
             let mut image_data = Vec::new();
             response.read_to_end(&mut image_data).unwrap();
@@ -135,6 +152,8 @@ fn main() {
         }
     }
 
-    println!("Writing out to {}", output_file_path.to_string_lossy());
+    info!("Writing out to {}", output_file_path.to_string_lossy());
     canvas.save(output_file_path).unwrap();
+
+    info!("Done");
 }
