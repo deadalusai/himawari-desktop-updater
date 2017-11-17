@@ -1,4 +1,5 @@
-// NOTE: Set "windows" subsystem only for release builds
+// NOTE: Set "windows" subsystem for release builds
+// This disables console output, which prevents a console window from opening and stealing focus when running this program as a scheduled task. 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 extern crate reqwest;
@@ -38,12 +39,6 @@ use app_error::{AppErr};
 
 use rayon::prelude::*;
 
-#[derive(Serialize, Deserialize, Debug)]
-struct LatestInfo {
-    date: String,
-    file: String
-}
-
 #[cfg(debug_assertions)]
 fn initialize_logger () -> io::Result<()> {
     simple_logging::log_to_stderr(log::LogLevelFilter::Info)
@@ -69,7 +64,7 @@ fn main () {
 
             .arg(Arg::with_name("store-latest-only")
                 .long("store-latest-only")
-                .help("If set, writes the output to a single file named 'latest.png'"))
+                .help("If set, writes the output to a single file named 'latest"))
 
             .arg(Arg::with_name("force")
                 .long("force")
@@ -102,12 +97,14 @@ fn main () {
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);
     info!("force: {}", force);
-    info!("output_dir: {}", output_dir.display());
+    info!("output-dir: {}", output_dir.display());
     
-    let result = main_impl(store_latest_only, force, output_dir);
+    let result =
+        download_latest_himawari_image(store_latest_only, force, &output_dir)
+            .and_then(|image_path| set_wallpaper(&image_path));
 
     match result {
-        Ok(_) => {
+        Ok(()) => {
             info!("Done");
         },
         Err(app_err) => {
@@ -131,17 +128,35 @@ fn download_bytes (url: &str) -> Result<Vec<u8>, AppErr> {
     Ok(data)
 }
 
-fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Result<(), AppErr> {
+#[derive(Serialize, Deserialize, Debug)]
+struct LatestInfo {
+    date: String,
+    file: String
+}
+
+fn download_latest_himawari_image (store_latest_only: bool, force: bool, output_dir: &Path) -> Result<PathBuf, AppErr> {
+
+    // Prepare the output folder
+    info!("Preparing output dir...");
+    if !output_dir.exists() {
+        DirBuilder::new()
+            .recursive(true)
+            .create(&output_dir)?;
+    }
+
+    const HIMAWARI_BASE_URL: &'static str = "http://himawari8-dl.nict.go.jp/himawari8/img/D531106";
 
     // Download and parse the "latest.json" metadata
     let cache_buster = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-
-    let url = format!("http://himawari8-dl.nict.go.jp/himawari8/img/D531106/latest.json?uid={}", cache_buster);
+    info!("Downloading latest metadata...");
+    let url = format!("{}/latest.json?uid={}", HIMAWARI_BASE_URL, cache_buster);
 
     let json_content = download_string(&url)?;
 
     let latest_info = serde_json::from_str::<LatestInfo>(&json_content)?;
     let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?;
+
+    info!("Latest image available: {}", latest_date);
 
     let width = 550;
     let level = 4; // Level can be 4, 8, 16, 20
@@ -150,19 +165,8 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
     let month = latest_date.format("%m");
     let day   = latest_date.format("%d");
 
-    // Create the output folder if it doesnt exist (e.g. "My Pictures\Himawari\")
-    if !output_dir.exists() {
-        DirBuilder::new()
-            .recursive(true)
-            .create(&output_dir)?;
-    }
-
-    info!("Writing images to {}", output_dir.display());
-
-    let mut output_file_path = output_dir.clone();
-
     // The filename that will be written
-    // NOTE: Output format detemined by file extension (jpeg or png)
+    let mut output_file_path = output_dir.to_path_buf();
     if store_latest_only {
         output_file_path.push("himawari8_latest.jpeg");
     } else {
@@ -170,27 +174,27 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
     }
 
     // Have we already downloaded this one?
-    if !store_latest_only && !force && output_file_path.exists() {
-        error!("Output file {} already exists. Use --force to overwrite", output_file_path.display());
-        exit(1);
+    if output_file_path.exists() && !store_latest_only && !force {
+        warn!("Output file {} already exists. Use --force to overwrite", output_file_path.display());
+        return Ok(output_file_path);
     }
 
     // For each (x, y) position in a level*level image...
-    let chunk_positions: Vec<_> = (0..level).flat_map(|y| (0..level).map(move |x| (x, y))).collect();
+    let chunk_positions: Vec<_> =
+        (0..level).flat_map(|y| (0..level).map(move |x| (x, y)))
+        .collect();
 
-    // Download each image into memory
-    let chunks: Vec<_> =
+    // In parallel, download each chunk into memory
+    let chunks: Vec<_> = 
         chunk_positions
         .into_par_iter()
         .filter_map(|(x, y)| {
-
-            let url = format!("http://himawari8-dl.nict.go.jp/himawari8/img/D531106/{}d/{}/{}/{}/{}/{}_{}_{}.png", level, width, year, month, day, time, x, y);
-
+            let url = format!("{}/{}d/{}/{}/{}/{}/{}_{}_{}.png", HIMAWARI_BASE_URL, level, width, year, month, day, time, x, y);
             info!("Downloading chunk {}...", url);
-
             match download_bytes(&url) {
                 Ok(image_data) => Some((x, y, image_data)),
                 Err(err) => {
+                    // For now, just leave a hole in the final image
                     warn!("{}", err);
                     None
                 }
@@ -199,8 +203,6 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
         .collect();
 
     info!("Combining chunks...");
-
-    // Combine image chunks into one canvas
     let mut canvas = ImageBuffer::new(width * level, width * level);
 
     for (x, y, image_data) in chunks {
@@ -208,37 +210,36 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
         canvas.copy_from(&block, x * width, y * width);
     }
 
+    // NOTE: Output format detemined by file extension (jpeg or png)
     info!("Writing out to {}", output_file_path.display());
     canvas.save(output_file_path.as_path())?;
 
-    info!("Setting wallpaper...");
-    set_wallpaper_registry_keys(output_file_path.as_path())?;
-    set_wallpaper(output_file_path.as_path())?;
-
-    Ok(())
+    Ok(output_file_path)
 }
 
-fn set_wallpaper_registry_keys (image_path: &Path) -> Result<(), AppErr> {
+// TODO: Linux/OSX versions of set_wallpaper?
+fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
     use winreg::RegKey;
     use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
 
+    info!("Setting Windows desktop wallpaper registry keys");
+
+    // Set registry flags to control wallpaper style
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key_desktop = hkcu.open_subkey_with_flags("Control Panel\\Desktop", KEY_WRITE)?;
-    key_desktop.set_value("Wallpaper", &image_path.as_os_str())?;
-    key_desktop.set_value("WallpaperStyle", &"6")?;
-    key_desktop.set_value("TileWallpaper", &"0")?;
+    key_desktop.set_value("WallpaperStyle", &"6")?; // Style "Fit"
+    key_desktop.set_value("TileWallpaper", &"0")?;  // Tiling disabled
     
     let key_colors = hkcu.open_subkey_with_flags("Control Panel\\Colors", KEY_WRITE)?;
-    key_colors.set_value("Background", &"0 0 0")?;
+    key_colors.set_value("Background", &"0 0 0")?;  // Black background
 
-    Ok(())
-}
-
-fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
+    // Set wallpaper though USER32 API
     use std::ffi::{CString};
     use user32::{SystemParametersInfoA};
     use winapi::{c_void};
     use winapi::winuser::{SPI_SETDESKWALLPAPER};
+    
+    info!("Setting Windows desktop wallpaper");
     
     let path_ptr = CString::new(image_path.to_str().unwrap()).unwrap().into_raw();
 
