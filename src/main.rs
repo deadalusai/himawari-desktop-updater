@@ -15,6 +15,7 @@ extern crate simple_logging;
 extern crate winreg;
 extern crate winapi;
 extern crate user32;
+extern crate rayon;
 
 pub mod app_error;
 
@@ -34,6 +35,8 @@ use image::{GenericImage, ImageBuffer, ImageFormat, load_from_memory_with_format
 use clap::{App, Arg};
 
 use app_error::{AppErr};
+
+use rayon::prelude::*;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct LatestInfo {
@@ -158,12 +161,14 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
         exit(1);
     }
 
-    // Output buffer
-    let mut canvas = ImageBuffer::new(width * level, width * level);
+    // For each (x, y) position in a level*level image...
+    let chunk_positions: Vec<_> = (0..level).flat_map(|y| (0..level).map(move |x| (x, y))).collect();
 
-    // Download each image into a temporary buffer and copy it into the buffer
-    for y in 0..level {
-        for x in 0..level {
+    // Download each image into memory
+    let chunks: Vec<_> =
+        chunk_positions
+        .into_par_iter()
+        .filter_map(|(x, y)| {
 
             let url = format!(
                 "http://himawari8-dl.nict.go.jp/himawari8/img/D531106/{level}d/{width}/{year}/{month}/{day}/{time}_{x}_{y}.png", 
@@ -172,18 +177,27 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
 
             info!("Downloading chunk {}...", url);
 
-            let mut response = reqwest::get(&url)?;
+            let mut response = reqwest::get(&url).unwrap();
             if !response.status().is_success() {
                 warn!("Unable to download chunk: {}", response.status());
-                continue;
+                return None;
             }
 
             let mut image_data = Vec::new();
-            response.read_to_end(&mut image_data)?;
+            response.read_to_end(&mut image_data).unwrap();
 
-            let block = load_from_memory_with_format(&image_data, ImageFormat::PNG)?;
-            canvas.copy_from(&block, x * width, y * width);
-        }
+            Some((x, y, image_data))
+        })
+        .collect();
+
+    info!("Combining chunks...");
+
+    // Combine image chunks into one canvas
+    let mut canvas = ImageBuffer::new(width * level, width * level);
+
+    for (x, y, image_data) in chunks {
+        let block = load_from_memory_with_format(&image_data, ImageFormat::PNG)?;
+        canvas.copy_from(&block, x * width, y * width);
     }
 
     info!("Writing out to {}", output_file_path.display());
