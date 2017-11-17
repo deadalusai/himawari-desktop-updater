@@ -12,6 +12,9 @@ extern crate clap;
 #[macro_use]
 extern crate log;
 extern crate simple_logging;
+extern crate winreg;
+extern crate winapi;
+extern crate user32;
 
 pub mod app_error;
 
@@ -49,7 +52,7 @@ fn initialize_logger () -> io::Result<()> {
     simple_logging::log_to_file("himawari-desktop-updater.log", log::LogLevelFilter::Info)
 }
 
-fn main() {
+fn main () {
     
     let args = 
         App::new("himawari-desktop-updater")
@@ -89,7 +92,7 @@ fn main() {
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);
     info!("force: {}", force);
-    info!("output_dir: {}", output_dir.to_string_lossy());
+    info!("output_dir: {}", output_dir.display());
     
     let result = main_impl(store_latest_only, force, output_dir);
 
@@ -137,20 +140,21 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
             .create(&output_dir)?;
     }
 
+    info!("Writing images to {}", output_dir.display());
+
     let mut output_file_path = output_dir.clone();
 
     // The filename that will be written
+    // NOTE: Output format detemined by file extension (jpeg or png)
     if store_latest_only {
-        output_file_path.push("himawari8_latest.png");
+        output_file_path.push("himawari8_latest.jpeg");
     } else {
-        output_file_path.push(format!("himawari8_{}{}{}_{}.png", year, month, day, time));
+        output_file_path.push(format!("himawari8_{}{}{}_{}.jpeg", year, month, day, time));
     }
-
-    info!("Writing output to {}", output_file_path.to_string_lossy());
 
     // Have we already downloaded this one?
     if !store_latest_only && !force && output_file_path.exists() {
-        error!("Output file {} already exists. Use --force to overwrite", output_file_path.to_string_lossy());
+        error!("Output file {} already exists. Use --force to overwrite", output_file_path.display());
         exit(1);
     }
 
@@ -182,8 +186,48 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
         }
     }
 
-    info!("Writing out to {}", output_file_path.to_string_lossy());
-    canvas.save(output_file_path)?;
+    info!("Writing out to {}", output_file_path.display());
+    canvas.save(output_file_path.as_path())?;
+
+    info!("Setting wallpaper...");
+    set_wallpaper_registry_keys(output_file_path.as_path())?;
+    user32_set_desktop_wallpaper(output_file_path.as_path());
 
     Ok(())
+}
+
+fn set_wallpaper_registry_keys (image_path: &Path) -> Result<(), AppErr> {
+    use winreg::RegKey;
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key_desktop = hkcu.open_subkey_with_flags("Control Panel\\Desktop", KEY_WRITE)?;
+    key_desktop.set_value("Wallpaper", &image_path.as_os_str())?;
+    key_desktop.set_value("WallpaperStyle", &"6")?;
+    key_desktop.set_value("TileWallpaper", &"0")?;
+    
+    let key_colors = hkcu.open_subkey_with_flags("Control Panel\\Colors", KEY_WRITE)?;
+    key_colors.set_value("Background", &"0 0 0")?;
+
+    Ok(())
+}
+
+fn user32_set_desktop_wallpaper (image_path: &Path) {
+    use std::ffi::{CString};
+    use user32::{SystemParametersInfoA};
+    use winapi::{c_void};
+    use winapi::winuser::{SPI_SETDESKWALLPAPER};
+    
+    let path_ptr = CString::new(image_path.to_str().unwrap()).unwrap().into_raw();
+
+    // NOTE: SystemParametersInfoW is apparently the 64-bit call, but appears to only set the desktop background to black?
+    // let system_parameters_info = if cfg!(target_pointer_width = "32") { SystemParametersInfoA } else { SystemParametersInfoW };
+
+    let ok = unsafe { SystemParametersInfoA(SPI_SETDESKWALLPAPER, 0, path_ptr as *mut c_void, 0) };
+
+    unsafe { CString::from_raw(path_ptr) };
+
+    if ok == 0 {
+        warn!("Unable to set desktop background?");
+    }
 }
