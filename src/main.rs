@@ -21,7 +21,6 @@ pub mod app_error;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{Read};
-use std::env::{current_dir};
 use std::fs::{DirBuilder};
 use std::process::{exit};
 use std::path::{Path, PathBuf};
@@ -56,11 +55,15 @@ fn initialize_logger () -> io::Result<()> {
 }
 
 fn main () {
+
+    // Initialize logger...
+    initialize_logger().unwrap();
     
+    // NOTE: Args are still parsed in Release mode but the program is headless so there is no way to print out help
     let args = 
         App::new("himawari-desktop-updater")
             .version("0.1")
-            .about("Downloads the latest photo from the Himawari-8 geo-synchronous satellite, and sets it as your desktop background (TODO)")
+            .about("Downloads the latest photo from the Himawari-8 geo-synchronous satellite and sets it as your desktop background.")
             .author("Benjamin Fox")
 
             .arg(Arg::with_name("store-latest-only")
@@ -74,6 +77,7 @@ fn main () {
             .arg(Arg::with_name("output-dir")
                 .long("output-dir")
                 .help("Set the output directory")
+                .required(true)
                 .value_name("OUTPUT_DIR"))
 
             .get_matches();
@@ -86,11 +90,8 @@ fn main () {
 
     // Directory to write images out to
     let output_dir = args.value_of("output-dir")
-                        .map(|s| Path::new(s).to_path_buf())
-                        .unwrap_or_else(|| current_dir().unwrap());
-
-    // Initialize logger...
-    initialize_logger().unwrap();
+        .map(|s| Path::new(s).to_path_buf())
+        .unwrap();
 
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);
@@ -206,7 +207,7 @@ fn main_impl (store_latest_only: bool, force: bool, output_dir: PathBuf) -> Resu
 
     info!("Setting wallpaper...");
     set_wallpaper_registry_keys(output_file_path.as_path())?;
-    user32_set_desktop_wallpaper(output_file_path.as_path());
+    set_wallpaper(output_file_path.as_path())?;
 
     Ok(())
 }
@@ -227,7 +228,7 @@ fn set_wallpaper_registry_keys (image_path: &Path) -> Result<(), AppErr> {
     Ok(())
 }
 
-fn user32_set_desktop_wallpaper (image_path: &Path) {
+fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
     use std::ffi::{CString};
     use user32::{SystemParametersInfoA};
     use winapi::{c_void};
@@ -238,11 +239,12 @@ fn user32_set_desktop_wallpaper (image_path: &Path) {
     // NOTE: SystemParametersInfoW is apparently the 64-bit call, but appears to only set the desktop background to black?
     // let system_parameters_info = if cfg!(target_pointer_width = "32") { SystemParametersInfoA } else { SystemParametersInfoW };
 
-    let ok = unsafe { SystemParametersInfoA(SPI_SETDESKWALLPAPER, 0, path_ptr as *mut c_void, 0) };
+    let result = unsafe { SystemParametersInfoA(SPI_SETDESKWALLPAPER, 0, path_ptr as *mut c_void, 0) };
 
     unsafe { CString::from_raw(path_ptr) };
 
-    if ok == 0 {
-        warn!("Unable to set desktop background?");
+    match result {
+        0 => Err(AppErr::custom("Windows", "Unable to set desktop wallpaper")),
+        _ => Ok(())
     }
 }

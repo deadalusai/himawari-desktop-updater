@@ -1,13 +1,17 @@
 use std::fmt::{Debug, Display, Formatter, Error as FmtError};
 use std::error::{Error};
 
-pub struct AppErr(String, Box<Error>);
+pub struct AppErr(String, Option<Box<Error>>);
 
 impl AppErr {
     fn new <E> (kind: &str, error: E) -> AppErr
-        where E: 'static + Error
+        where E: Error + 'static
     {
-        AppErr(format!("[{}] {}", kind, error), Box::new(error))
+        AppErr(format!("[{}] {}", kind, error), Some(Box::new(error)))
+    }
+
+    pub fn custom (kind: &str, message: &str) -> AppErr {
+        AppErr(format!("[{}] {}", kind, message), None)
     }
 }
 
@@ -29,7 +33,10 @@ impl Error for AppErr {
     }
 
     fn cause (&self) -> Option<&Error> {
-        Some(&*self.1)
+        match self.1 {
+            Some(ref err) => Some(err.as_ref()),
+            None          => None
+        }
     }
 }
 
