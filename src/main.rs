@@ -22,6 +22,7 @@ pub mod app_error;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{Read};
 use std::fs::{DirBuilder};
+use std::env::{current_dir};
 use std::process::{exit};
 use std::path::{Path, PathBuf};
 use std::io;
@@ -89,9 +90,14 @@ fn main () {
     let force = args.is_present("force");
 
     // Directory to write images out to
-    let output_dir = args.value_of("output-dir")
-        .map(|s| Path::new(s).to_path_buf())
-        .unwrap();
+    let output_dir = match args.value_of("output-dir") {
+        Some(s) => {
+            let mut path = current_dir().unwrap();
+            path.push(s);
+            path
+        },
+        None => unreachable!()
+    };
 
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);
