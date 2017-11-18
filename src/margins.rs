@@ -9,7 +9,7 @@ pub struct Margins {
 
 impl Margins {
     pub fn parse (input: &str) -> Result<Margins, AppErr> {
-        let fail = || AppErr::custom("margins", "Invalid margins. Use format TOP[,RIGHT][,BOTTOM][,LEFT]");
+        let fail = || AppErr::custom("margins", "Use format TOP[,RIGHT][,BOTTOM][,LEFT]");
 
         let mut parts = input.split(",")
                              .map(|s| s.trim())

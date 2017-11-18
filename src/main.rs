@@ -27,6 +27,7 @@ use std::fs::{DirBuilder};
 use std::env::{current_dir};
 use std::process::{exit};
 use std::path::{Path, PathBuf};
+use std::error::{Error};
 use std::io;
 
 use chrono::prelude::*;
@@ -81,6 +82,11 @@ fn main () {
             .arg(Arg::with_name("margins")
                 .long("margins")
                 .help("Set top,right,bottom,left margins on the output image")
+                .validator(|s| {
+                    Margins::parse(&s)
+                        .map(|_| ())
+                        .map_err(|err| err.description().to_string())
+                })
                 .value_name("TOP,RIGHT,BOTTOM,LEFT"))
 
             .get_matches();
@@ -103,14 +109,8 @@ fn main () {
 
     // Optional margins to put on the image
     let margins = match args.value_of("margins") {
-        None => Margins::empty(),
-        Some(s) => match Margins::parse(s) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("{}", e);
-                exit(1);
-            }
-        }
+        Some(s) => Margins::parse(s).unwrap(),
+        None    => Margins::empty()
     };
 
     info!("Starting...");
@@ -218,7 +218,7 @@ fn download_latest_himawari_image (store_latest_only: bool, force: bool, margins
                     warn!("{}", err);
                     None
                 }
-            }            
+            }
         })
         .collect();
 
