@@ -18,7 +18,8 @@ extern crate winapi;
 extern crate user32;
 extern crate rayon;
 
-pub mod app_error;
+mod error;
+mod margins;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{Read};
@@ -35,9 +36,10 @@ use image::{GenericImage, ImageBuffer, ImageFormat, load_from_memory_with_format
 
 use clap::{App, Arg};
 
-use app_error::{AppErr};
-
 use rayon::prelude::*;
+
+use self::error::{AppErr};
+use self::margins::{Margins};
 
 #[cfg(debug_assertions)]
 fn initialize_logger () -> io::Result<()> {
@@ -76,6 +78,11 @@ fn main () {
                 .required(true)
                 .value_name("OUTPUT_DIR"))
 
+            .arg(Arg::with_name("margins")
+                .long("margins")
+                .help("Set top,right,bottom,left margins on the output image")
+                .value_name("TOP,RIGHT,BOTTOM,LEFT"))
+
             .get_matches();
 
     // If set, write only to "latest.png"
@@ -94,13 +101,26 @@ fn main () {
         None => unreachable!()
     };
 
+    // Optional margins to put on the image
+    let margins = match args.value_of("margins") {
+        None => Margins::empty(),
+        Some(s) => match Margins::parse(s) {
+            Ok(v) => v,
+            Err(e) => {
+                error!("{}", e);
+                exit(1);
+            }
+        }
+    };
+
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);
     info!("force: {}", force);
     info!("output-dir: {}", output_dir.display());
+    info!("margins: {}, {}, {}, {}", margins.top, margins.right, margins.bottom, margins.left);
     
     let result =
-        download_latest_himawari_image(store_latest_only, force, &output_dir)
+        download_latest_himawari_image(store_latest_only, force, margins, &output_dir)
             .and_then(|image_path| set_wallpaper(&image_path));
 
     match result {
@@ -134,7 +154,7 @@ struct LatestInfo {
     file: String
 }
 
-fn download_latest_himawari_image (store_latest_only: bool, force: bool, output_dir: &Path) -> Result<PathBuf, AppErr> {
+fn download_latest_himawari_image (store_latest_only: bool, force: bool, margins: Margins, output_dir: &Path) -> Result<PathBuf, AppErr> {
 
     // Prepare the output folder
     info!("Preparing output dir...");
@@ -203,11 +223,16 @@ fn download_latest_himawari_image (store_latest_only: bool, force: bool, output_
         .collect();
 
     info!("Combining chunks...");
-    let mut canvas = ImageBuffer::new(width * level, width * level);
+    let w = margins.left + (width * level) + margins.right;
+    let h = margins.top + (width * level) + margins.bottom;
+
+    let mut canvas = ImageBuffer::new(w, h);
 
     for (x, y, image_data) in chunks {
         let block = load_from_memory_with_format(&image_data, ImageFormat::PNG)?;
-        canvas.copy_from(&block, x * width, y * width);
+        let x = margins.left + (x * width);
+        let y = margins.top + (y * width);
+        canvas.copy_from(&block, x, y);
     }
 
     // NOTE: Output format detemined by file extension (jpeg or png)
