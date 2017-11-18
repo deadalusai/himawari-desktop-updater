@@ -234,27 +234,25 @@ fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
     let key_colors = hkcu.open_subkey_with_flags("Control Panel\\Colors", KEY_WRITE)?;
     key_colors.set_value("Background", &"0 0 0")?; // Black background
 
-    // Set wallpaper and fill color though user32 API
+    // Also set wallpaper and fill color through user32 API
     info!("Setting Windows desktop wallpaper");
     
-    use std::ffi::{CString};
-    use user32::{SystemParametersInfoA, SetSysColors};
-    use winapi::{c_void};
+    use std::os::windows::ffi::{OsStrExt};
+    use std::iter::once;
+    use user32::{SystemParametersInfoW, SetSysColors};
+    use winapi::winnt::{PVOID};
     use winapi::winuser::{SPI_SETDESKWALLPAPER, COLOR_BACKGROUND};
-    
-    // NOTE: SystemParametersInfoW is apparently the 64-bit call, but appears to only set the desktop background to black?
-    // let system_parameters_info = if cfg!(target_pointer_width = "32") { SystemParametersInfoA } else { SystemParametersInfoW };
 
     // Desktop wallpaper
     unsafe {
-        let path_ptr = CString::new(image_path.to_str().unwrap()).unwrap().into_raw();
-        SystemParametersInfoA(SPI_SETDESKWALLPAPER, 0, path_ptr as *mut c_void, 0);
-        CString::from_raw(path_ptr);
+        // NUL-terminated unicode string
+        let path_unicode: Vec<u16> = image_path.as_os_str().encode_wide().chain(once(0)).collect();
+        SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, path_unicode.as_ptr() as PVOID, 0);
     }
 
     // Background fill (black)
     unsafe { 
-        SetSysColors(1, (&[COLOR_BACKGROUND]).as_ptr(), (&[0, 0, 0]).as_ptr());
+        SetSysColors(1, [COLOR_BACKGROUND].as_ptr(), [0, 0, 0].as_ptr());
     }
     
     Ok(())
