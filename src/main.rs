@@ -92,26 +92,28 @@ fn main () {
             .get_matches();
 
     // If set, write only to "latest.png"
-    let store_latest_only = args.is_present("store-latest-only");
+    let store_latest_only =
+        args.is_present("store-latest-only");
 
     // If set, overwrite output image
-    let force = args.is_present("force");
+    let force =
+        args.is_present("force");
 
     // Directory to write images out to
-    let output_dir = match args.value_of("output-dir") {
-        Some(s) => {
-            let mut path = current_dir().unwrap();
-            path.push(s);
-            path
-        },
-        None => unreachable!()
-    };
+    let output_dir = 
+        args.value_of("output-dir")
+            .map(|s| {
+                let mut path = current_dir().unwrap();
+                path.push(s);
+                path
+            })
+            .unwrap();
 
     // Optional margins to put on the image
-    let margins = match args.value_of("margins") {
-        Some(s) => Margins::parse(s).unwrap(),
-        None    => Margins::empty()
-    };
+    let margins =
+        args.value_of("margins")
+            .and_then(|s| Margins::parse(s).ok())
+            .unwrap_or_else(|| Margins::empty());
 
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);
