@@ -219,39 +219,43 @@ fn download_latest_himawari_image (store_latest_only: bool, force: bool, output_
 
 // TODO: Linux/OSX versions of set_wallpaper?
 fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
+    // Set registry flags to control wallpaper style
+    info!("Setting Windows desktop wallpaper registry keys");
+
     use winreg::RegKey;
     use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
 
-    info!("Setting Windows desktop wallpaper registry keys");
-
-    // Set registry flags to control wallpaper style
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key_desktop = hkcu.open_subkey_with_flags("Control Panel\\Desktop", KEY_WRITE)?;
+    key_desktop.set_value("Wallpaper", &image_path.as_os_str())?; // Wallpaper path
     key_desktop.set_value("WallpaperStyle", &"6")?; // Style "Fit"
-    key_desktop.set_value("TileWallpaper", &"0")?;  // Tiling disabled
-    
-    let key_colors = hkcu.open_subkey_with_flags("Control Panel\\Colors", KEY_WRITE)?;
-    key_colors.set_value("Background", &"0 0 0")?;  // Black background
+    key_desktop.set_value("TileWallpaper", &"0")?; // Tiling disabled
 
-    // Set wallpaper though USER32 API
-    use std::ffi::{CString};
-    use user32::{SystemParametersInfoA};
-    use winapi::{c_void};
-    use winapi::winuser::{SPI_SETDESKWALLPAPER};
-    
+    let key_colors = hkcu.open_subkey_with_flags("Control Panel\\Colors", KEY_WRITE)?;
+    key_colors.set_value("Background", &"0 0 0")?; // Black background
+
+    // Set wallpaper and fill color though user32 API
     info!("Setting Windows desktop wallpaper");
     
-    let path_ptr = CString::new(image_path.to_str().unwrap()).unwrap().into_raw();
-
+    use std::ffi::{CString};
+    use user32::{SystemParametersInfoA, SetSysColors};
+    use winapi::{c_void};
+    use winapi::winuser::{SPI_SETDESKWALLPAPER, COLOR_BACKGROUND};
+    
     // NOTE: SystemParametersInfoW is apparently the 64-bit call, but appears to only set the desktop background to black?
     // let system_parameters_info = if cfg!(target_pointer_width = "32") { SystemParametersInfoA } else { SystemParametersInfoW };
 
-    let result = unsafe { SystemParametersInfoA(SPI_SETDESKWALLPAPER, 0, path_ptr as *mut c_void, 0) };
-
-    unsafe { CString::from_raw(path_ptr) };
-
-    match result {
-        0 => Err(AppErr::custom("Windows", "Unable to set desktop wallpaper")),
-        _ => Ok(())
+    // Desktop wallpaper
+    unsafe {
+        let path_ptr = CString::new(image_path.to_str().unwrap()).unwrap().into_raw();
+        SystemParametersInfoA(SPI_SETDESKWALLPAPER, 0, path_ptr as *mut c_void, 0);
+        CString::from_raw(path_ptr);
     }
+
+    // Background fill (black)
+    unsafe { 
+        SetSysColors(1, (&[COLOR_BACKGROUND]).as_ptr(), (&[0, 0, 0]).as_ptr());
+    }
+    
+    Ok(())
 }
