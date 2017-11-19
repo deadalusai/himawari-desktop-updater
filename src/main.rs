@@ -19,6 +19,7 @@ extern crate user32;
 extern crate rayon;
 
 mod error;
+mod output_format;
 mod margins;
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -40,6 +41,7 @@ use clap::{App, Arg};
 use rayon::prelude::*;
 
 use self::error::{AppErr};
+use self::output_format::{OutputFormat};
 use self::margins::{Margins};
 
 #[cfg(debug_assertions)]
@@ -67,7 +69,7 @@ fn main () {
 
             .arg(Arg::with_name("store-latest-only")
                 .long("store-latest-only")
-                .help("If set, writes the output to a single file named 'latest"))
+                .help("If set, writes the output to a single file named 'latest'"))
 
             .arg(Arg::with_name("force")
                 .long("force")
@@ -78,6 +80,16 @@ fn main () {
                 .help("Set the output directory")
                 .required(true)
                 .value_name("OUTPUT_DIR"))
+
+            .arg(Arg::with_name("output-format")
+                .long("output-format")
+                .help("Set the output format, PNG or JPEG (default)")
+                .validator(|s| {
+                    OutputFormat::parse(&s)
+                        .map(|_| ())
+                        .map_err(|err| err.description().to_string())
+                })
+                .value_name("OUTPUT_FORMAT"))
 
             .arg(Arg::with_name("margins")
                 .long("margins")
@@ -109,6 +121,12 @@ fn main () {
             })
             .unwrap();
 
+    // Optional output image format
+    let output_format =
+        args.value_of("output-format")
+            .and_then(|s| OutputFormat::parse(s).ok())
+            .unwrap_or_else(|| OutputFormat::JPEG);
+
     // Optional margins to put on the image
     let margins =
         args.value_of("margins")
@@ -122,7 +140,7 @@ fn main () {
     info!("margins: {}, {}, {}, {}", margins.top, margins.right, margins.bottom, margins.left);
     
     let result =
-        download_latest_himawari_image(store_latest_only, force, margins, &output_dir)
+        download_latest_himawari_image(store_latest_only, force, margins, &output_dir, output_format)
             .and_then(|image_path| set_wallpaper(&image_path));
 
     match result {
@@ -156,7 +174,7 @@ struct LatestInfo {
     file: String
 }
 
-fn download_latest_himawari_image (store_latest_only: bool, force: bool, margins: Margins, output_dir: &Path) -> Result<PathBuf, AppErr> {
+fn download_latest_himawari_image (store_latest_only: bool, force: bool, margins: Margins, output_dir: &Path, output_format: OutputFormat) -> Result<PathBuf, AppErr> {
 
     // Prepare the output folder
     info!("Preparing output dir...");
@@ -190,9 +208,9 @@ fn download_latest_himawari_image (store_latest_only: bool, force: bool, margins
     // The filename that will be written
     let mut output_file_path = output_dir.to_path_buf();
     if store_latest_only {
-        output_file_path.push("himawari8_latest.jpeg");
+        output_file_path.push(format!("himawari8_latest.{}", output_format));
     } else {
-        output_file_path.push(format!("himawari8_{}{}{}_{}.jpeg", year, month, day, time));
+        output_file_path.push(format!("himawari8_{}{}{}_{}.{}", year, month, day, time, output_format));
     }
 
     // Have we already downloaded this one?
