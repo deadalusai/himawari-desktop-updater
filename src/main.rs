@@ -23,13 +23,12 @@ mod output_format;
 mod margins;
 
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::io::{Read};
+use std::io::{self, Read};
 use std::fs::{DirBuilder};
 use std::env::{current_dir};
 use std::process::{exit};
 use std::path::{Path, PathBuf};
 use std::error::{Error};
-use std::io;
 
 use chrono::prelude::*;
 use chrono::offset::{Utc};
@@ -271,13 +270,13 @@ fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
     use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key_colors = hkcu.open_subkey_with_flags("Control Panel\\Colors", KEY_WRITE)?;
+    key_colors.set_value("Background", &"0 0 0")?; // Black background
+
     let key_desktop = hkcu.open_subkey_with_flags("Control Panel\\Desktop", KEY_WRITE)?;
     key_desktop.set_value("Wallpaper", &image_path.as_os_str())?; // Wallpaper path
     key_desktop.set_value("WallpaperStyle", &"6")?; // Style "Fit"
     key_desktop.set_value("TileWallpaper", &"0")?; // Tiling disabled
-
-    let key_colors = hkcu.open_subkey_with_flags("Control Panel\\Colors", KEY_WRITE)?;
-    key_colors.set_value("Background", &"0 0 0")?; // Black background
 
     // Also set wallpaper and fill color through user32 API
     info!("Setting Windows desktop wallpaper");
@@ -288,16 +287,16 @@ fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
     use winapi::winnt::{PVOID};
     use winapi::winuser::{SPI_SETDESKWALLPAPER, COLOR_BACKGROUND};
 
+    // Background fill (black)
+    unsafe { 
+        SetSysColors(1, [COLOR_BACKGROUND].as_ptr(), [0, 0, 0].as_ptr());
+    }
+
     // Desktop wallpaper
     unsafe {
         // NUL-terminated unicode string
         let path_unicode: Vec<u16> = image_path.as_os_str().encode_wide().chain(once(0)).collect();
         SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, path_unicode.as_ptr() as PVOID, 0);
-    }
-
-    // Background fill (black)
-    unsafe { 
-        SetSysColors(1, [COLOR_BACKGROUND].as_ptr(), [0, 0, 0].as_ptr());
     }
     
     Ok(())
