@@ -24,3 +24,9 @@ impl Display for OutputFormat {
         write!(f, "{}", s)
     }
 }
+
+impl Default for OutputFormat {
+    fn default () -> OutputFormat {
+        OutputFormat::JPEG
+    }
+}

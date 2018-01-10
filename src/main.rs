@@ -20,6 +20,7 @@ extern crate rayon;
 
 mod error;
 mod output_format;
+mod output_level;
 mod margins;
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -41,6 +42,7 @@ use rayon::prelude::*;
 
 use self::error::{AppErr};
 use self::output_format::{OutputFormat};
+use self::output_level::{OutputLevel};
 use self::margins::{Margins};
 
 #[cfg(debug_assertions)]
@@ -90,6 +92,16 @@ fn main () {
                 })
                 .value_name("OUTPUT_FORMAT"))
 
+            .arg(Arg::with_name("output-level")
+                .long("output-level")
+                .help("Set the dimensions of the output image: 4, 8, 16 or 20. ")
+                .validator(|s| {
+                    OutputLevel::parse(&s)
+                        .map(|_| ())
+                        .map_err(|err| err.description().to_string())
+                })
+                .value_name("OUTPUT_LEVEL"))
+
             .arg(Arg::with_name("margins")
                 .long("margins")
                 .help("Set top,right,bottom,left margins on the output image")
@@ -124,7 +136,13 @@ fn main () {
     let output_format =
         args.value_of("output-format")
             .and_then(|s| OutputFormat::parse(s).ok())
-            .unwrap_or_else(|| OutputFormat::JPEG);
+            .unwrap_or_else(|| OutputFormat::default());
+
+    // Optional output image resolution
+    let output_level =
+        args.value_of("output-level")
+            .and_then(|s| OutputLevel::parse(s).ok())
+            .unwrap_or_else(|| OutputLevel::default());
 
     // Optional margins to put on the image
     let margins =
@@ -136,10 +154,12 @@ fn main () {
     info!("store-latest-only: {}", store_latest_only);
     info!("force: {}", force);
     info!("output-dir: {}", output_dir.display());
+    info!("output-format: {}", output_format);
+    info!("output-level: {}", output_level);
     info!("margins: {}, {}, {}, {}", margins.top, margins.right, margins.bottom, margins.left);
     
     let result =
-        download_latest_himawari_image(store_latest_only, force, margins, &output_dir, output_format)
+        download_latest_himawari_image(store_latest_only, force, margins, &output_dir, output_format, output_level)
             .and_then(|image_path| set_wallpaper(&image_path));
 
     match result {
@@ -173,7 +193,13 @@ struct LatestInfo {
     file: String
 }
 
-fn download_latest_himawari_image (store_latest_only: bool, force: bool, margins: Margins, output_dir: &Path, output_format: OutputFormat) -> Result<PathBuf, AppErr> {
+fn download_latest_himawari_image (
+    store_latest_only: bool,
+    force: bool,
+    margins: Margins,
+    output_dir: &Path,
+    output_format: OutputFormat,
+    output_level: OutputLevel) -> Result<PathBuf, AppErr> {
 
     // Prepare the output folder
     info!("Preparing output dir...");
@@ -197,8 +223,10 @@ fn download_latest_himawari_image (store_latest_only: bool, force: bool, margins
 
     info!("Latest image available: {}", latest_date);
 
+    // Width and Level determine the dimensions and count of image fragments downloaded
     let width = 550;
-    let level = 4; // Level can be 4, 8, 16, 20
+    // Level can be 4, 8, 16, 20
+    let level = output_level.to_level();
     let time  = latest_date.format("%H%M%S");
     let year  = latest_date.format("%Y");
     let month = latest_date.format("%m");
