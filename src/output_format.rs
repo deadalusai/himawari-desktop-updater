@@ -10,7 +10,7 @@ impl OutputFormat {
         match s.trim() {
             "PNG"  | "png"  => Ok(OutputFormat::PNG),
             "JPEG" | "jpeg" => Ok(OutputFormat::JPEG),
-            _               => Err(AppErr::custom("output-format", "Invalid image format, use JPEG or PNG"))
+            _               => Err(AppErr::new("output-format", "Invalid image format, use JPEG or PNG"))
         }
     }
 }

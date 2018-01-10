@@ -7,7 +7,7 @@ impl OutputLevel {
     pub fn parse (s: &str) -> Result<OutputLevel, AppErr> {
         match s.trim().parse::<u32>() {
             Ok(n) if n == 4 || n == 8 || n == 16 || n == 20 => Ok(OutputLevel(n)),
-            _ => Err(AppErr::custom("output-level", "Invalid level, use 4, 8, 16 or 20"))
+            _ => Err(AppErr::new("output-level", "Invalid level, use 4, 8, 16 or 20"))
         }
     }
 

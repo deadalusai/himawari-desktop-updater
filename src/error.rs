@@ -4,13 +4,13 @@ use std::error::{Error};
 pub struct AppErr(String, Option<Box<Error>>);
 
 impl AppErr {
-    fn new <E> (kind: &str, error: E) -> AppErr
+    fn from_err <E> (kind: &str, error: E) -> AppErr
         where E: Error + 'static
     {
         AppErr(format!("[{}] {}", kind, error), Some(Box::new(error)))
     }
 
-    pub fn custom (kind: &str, message: &str) -> AppErr {
+    pub fn new (kind: &str, message: &str) -> AppErr {
         AppErr(format!("[{}] {}", kind, message), None)
     }
 }
@@ -44,7 +44,7 @@ macro_rules! impl_from_error {
     ($type:ty) => {
         impl From<$type> for AppErr {
             fn from(err: $type) -> Self {
-                AppErr::new(stringify!($type), err)
+                AppErr::from_err(stringify!($type), err)
             }
         }
     }
