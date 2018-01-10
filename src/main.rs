@@ -1,6 +1,6 @@
 // NOTE: Set "windows" subsystem for release builds
 // This disables console output, which prevents a console window from opening and stealing focus when running this program as a scheduled task. 
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(all(windows, release), windows_subsystem = "windows")]
 
 extern crate reqwest;
 #[macro_use]
@@ -13,10 +13,11 @@ extern crate clap;
 #[macro_use]
 extern crate log;
 extern crate simple_logging;
-extern crate winreg;
-extern crate winapi;
-extern crate user32;
 extern crate rayon;
+
+#[cfg(windows)] extern crate winreg;
+#[cfg(windows)] extern crate winapi;
+#[cfg(windows)] extern crate user32;
 
 mod error;
 mod output_format;
@@ -45,13 +46,13 @@ use self::output_format::{OutputFormat};
 use self::output_level::{OutputLevel};
 use self::margins::{Margins};
 
-#[cfg(debug_assertions)]
+#[cfg(not(release))]
 fn initialize_logger () -> io::Result<()> {
     simple_logging::log_to_stderr(log::LogLevelFilter::Info)
         .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(release)]
 fn initialize_logger () -> io::Result<()> {
     simple_logging::log_to_file("himawari-desktop-updater.log", log::LogLevelFilter::Info)
 }
@@ -168,9 +169,9 @@ fn main () {
     
     let result =
         download_latest_himawari_image(store_latest_only, force, margins, &output_dir, output_format, output_level)
-            .and_then(|image_path| match try_set_wallpaper {
-                true => set_wallpaper(&image_path),
-                false => Ok(())
+            .and_then(|image_path| {
+                if try_set_wallpaper { set_wallpaper(&image_path) }
+                else { Ok(()) }
             });
 
     match result {
