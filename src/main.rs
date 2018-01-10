@@ -76,6 +76,10 @@ fn main () {
                 .long("force")
                 .help("If set, allow the output file to be overwritten"))
 
+            .arg(Arg::with_name("set-wallpaper")
+                .long("set-wallpaper")
+                .help("If set, attempts to set the current user's desktop background to the output image"))
+
             .arg(Arg::with_name("output-dir")
                 .long("output-dir")
                 .help("Set the output directory")
@@ -122,6 +126,10 @@ fn main () {
     let force =
         args.is_present("force");
 
+    // Try to set the desktop background?
+    let try_set_wallpaper =
+        args.is_present("set-wallpaper");
+
     // Directory to write images out to
     let output_dir = 
         args.value_of("output-dir")
@@ -160,7 +168,10 @@ fn main () {
     
     let result =
         download_latest_himawari_image(store_latest_only, force, margins, &output_dir, output_format, output_level)
-            .and_then(|image_path| set_wallpaper(&image_path));
+            .and_then(|image_path| match try_set_wallpaper {
+                true => set_wallpaper(&image_path),
+                false => Ok(())
+            });
 
     match result {
         Ok(()) => {
@@ -289,7 +300,7 @@ fn download_latest_himawari_image (
     Ok(output_file_path)
 }
 
-// TODO: Linux/OSX versions of set_wallpaper?
+#[cfg(windows)]
 fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
     // Set registry flags to control wallpaper style
     info!("Setting Windows desktop wallpaper registry keys");
@@ -327,5 +338,12 @@ fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
         SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, path_unicode.as_ptr() as PVOID, 0);
     }
     
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn set_wallpaper (_image_path: &Path) -> Result<(), AppErr> {
+    // TODO: Linux/OSX versions of set_wallpaper?
+    warn!("Setting the wallpaper is not supported on this platform");
     Ok(())
 }
