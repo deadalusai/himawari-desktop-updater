@@ -1,6 +1,6 @@
 // NOTE: Set "windows" subsystem for release builds
 // This disables console output, which prevents a console window from opening and stealing focus when running this program as a scheduled task. 
-#![cfg_attr(all(windows, release), windows_subsystem = "windows")]
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 extern crate reqwest;
 #[macro_use]
@@ -46,13 +46,13 @@ use self::output_format::{OutputFormat};
 use self::output_level::{OutputLevel};
 use self::margins::{Margins};
 
-#[cfg(not(release))]
+#[cfg(debug_assertions)]
 fn initialize_logger () -> io::Result<()> {
     simple_logging::log_to_stderr(log::LogLevelFilter::Info)
         .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
 }
 
-#[cfg(release)]
+#[cfg(not(debug_assertions))]
 fn initialize_logger () -> io::Result<()> {
     simple_logging::log_to_file("himawari-desktop-updater.log", log::LogLevelFilter::Info)
 }
