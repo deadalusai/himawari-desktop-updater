@@ -186,14 +186,14 @@ fn main () {
 }
 
 fn download_string (url: &str) -> Result<String, AppErr> {
-    let mut response = reqwest::get(url)?.error_for_status()?;
+    let mut response = reqwest::blocking::get(url)?.error_for_status()?;
     let mut content = String::new();
     response.read_to_string(&mut content)?;
     Ok(content)
 }
 
 fn download_bytes (url: &str) -> Result<Vec<u8>, AppErr> {
-    let mut response = reqwest::get(url)?.error_for_status()?;
+    let mut response = reqwest::blocking::get(url)?.error_for_status()?;
     let mut data = Vec::new();
     response.read_to_end(&mut data)?;
     Ok(data)
@@ -324,8 +324,8 @@ fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
     use std::os::windows::ffi::{OsStrExt};
     use std::iter::once;
     use user32::{SystemParametersInfoW, SetSysColors};
-    use winapi::winnt::{PVOID};
-    use winapi::winuser::{SPI_SETDESKWALLPAPER, COLOR_BACKGROUND};
+    use winapi::um::winnt::{PVOID};
+    use winapi::um::winuser::{SPI_SETDESKWALLPAPER, COLOR_BACKGROUND};
 
     // Background fill (black)
     unsafe { 

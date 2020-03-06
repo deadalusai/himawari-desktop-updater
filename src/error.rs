@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display, Formatter, Error as FmtError};
 use std::error::{Error};
 
-pub struct AppErr(String, Option<Box<Error>>);
+pub struct AppErr(String, Option<Box<dyn Error>>);
 
 impl AppErr {
     fn from_err <E> (kind: &str, error: E) -> AppErr
@@ -32,7 +32,7 @@ impl Error for AppErr {
         &self.0
     }
 
-    fn cause (&self) -> Option<&Error> {
+    fn source (&self) -> Option<&(dyn Error + 'static)> {
         match self.1 {
             Some(ref err) => Some(err.as_ref()),
             None          => None
