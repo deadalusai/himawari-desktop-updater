@@ -185,11 +185,10 @@ fn main () {
     }
 }
 
-fn download_string (url: &str) -> Result<String, AppErr> {
-    let mut response = reqwest::blocking::get(url)?.error_for_status()?;
-    let mut content = String::new();
-    response.read_to_string(&mut content)?;
-    Ok(content)
+macro_rules! download_json {
+    ($url:expr) => {
+        reqwest::blocking::get($url)?.error_for_status()?.json()
+    };
 }
 
 fn download_bytes (url: &str) -> Result<Vec<u8>, AppErr> {
@@ -228,9 +227,7 @@ fn download_latest_himawari_image (
     info!("Downloading latest metadata...");
     let url = format!("{}/latest.json?uid={}", HIMAWARI_BASE_URL, cache_buster);
 
-    let json_content = download_string(&url)?;
-
-    let latest_info = serde_json::from_str::<LatestInfo>(&json_content)?;
+    let latest_info: LatestInfo = download_json!(&url)?;
     let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?;
 
     info!("Latest image available: {}", latest_date);
