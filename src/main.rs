@@ -30,7 +30,6 @@ use std::fs::{DirBuilder};
 use std::env::{current_dir};
 use std::process::{exit};
 use std::path::{Path, PathBuf};
-use std::error::{Error};
 
 use chrono::prelude::*;
 use chrono::offset::{Utc};
@@ -93,7 +92,7 @@ fn main () {
                 .validator(|s| {
                     OutputFormat::parse(&s)
                         .map(|_| ())
-                        .map_err(|err| err.description().to_string())
+                        .map_err(|err| err.to_string())
                 })
                 .value_name("OUTPUT_FORMAT"))
 
@@ -103,7 +102,7 @@ fn main () {
                 .validator(|s| {
                     OutputLevel::parse(&s)
                         .map(|_| ())
-                        .map_err(|err| err.description().to_string())
+                        .map_err(|err| err.to_string())
                 })
                 .value_name("OUTPUT_LEVEL"))
 
@@ -113,7 +112,7 @@ fn main () {
                 .validator(|s| {
                     Margins::parse(&s)
                         .map(|_| ())
-                        .map_err(|err| err.description().to_string())
+                        .map_err(|err| err.to_string())
                 })
                 .value_name("TOP,RIGHT,BOTTOM,LEFT"))
 

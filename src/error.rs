@@ -17,7 +17,7 @@ impl AppErr {
 
 impl Display for AppErr {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
-        write!(f, "{}", self.description())
+        write!(f, "{}", self.0)
     }
 }
 
