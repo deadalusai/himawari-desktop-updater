@@ -30,6 +30,7 @@ use std::fs::{DirBuilder};
 use std::env::{current_dir};
 use std::process::{exit};
 use std::path::{Path, PathBuf};
+use std::time::{Duration};
 
 use chrono::prelude::*;
 use chrono::offset::{Utc};
@@ -184,14 +185,21 @@ fn main () {
     }
 }
 
-macro_rules! download_json {
-    ($url:expr) => {
-        reqwest::blocking::get($url)?.error_for_status()?.json()
-    };
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+
+fn download_json<T: serde::de::DeserializeOwned> (url: &str) -> Result<T, AppErr> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(DOWNLOAD_TIMEOUT)
+        .build()?;
+    let result: T = client.get(url).send()?.error_for_status()?.json()?;
+    Ok(result)
 }
 
 fn download_bytes (url: &str) -> Result<Vec<u8>, AppErr> {
-    let mut response = reqwest::blocking::get(url)?.error_for_status()?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(DOWNLOAD_TIMEOUT)
+        .build()?;
+    let mut response = client.get(url).send()?.error_for_status()?;
     let mut data = Vec::new();
     response.read_to_end(&mut data)?;
     Ok(data)
@@ -219,14 +227,14 @@ fn download_latest_himawari_image (
             .create(&output_dir)?;
     }
 
-    const HIMAWARI_BASE_URL: &'static str = "http://himawari8-dl.nict.go.jp/himawari8/img/D531106";
+    const HIMAWARI_BASE_URL: &'static str = "https://himawari8-dl.nict.go.jp/himawari8/img/D531106";
 
     // Download and parse the "latest.json" metadata
     let cache_buster = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     info!("Downloading latest metadata...");
-    let url = format!("{}/latest.json?uid={}", HIMAWARI_BASE_URL, cache_buster);
+    let url = format!("{}/latest.json?_={}", HIMAWARI_BASE_URL, cache_buster);
 
-    let latest_info: LatestInfo = download_json!(&url)?;
+    let latest_info: LatestInfo = download_json(&url)?;
     let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?;
 
     info!("Latest image available: {}", latest_date);
