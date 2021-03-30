@@ -1,69 +1,71 @@
 // NOTE: Set "windows" subsystem for release builds
-// This disables console output, which prevents a console window from opening and stealing focus when running this program as a scheduled task. 
+// This disables console output, which prevents a console window from opening and stealing focus when running this program as a scheduled task.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 extern crate reqwest;
 #[macro_use]
 extern crate serde_derive;
+extern crate chrono;
+extern crate clap;
+extern crate image;
 extern crate serde;
 extern crate serde_json;
-extern crate chrono;
-extern crate image;
-extern crate clap;
 #[macro_use]
 extern crate log;
-extern crate simple_logging;
 extern crate rayon;
+extern crate simple_logging;
 
-#[cfg(windows)] extern crate winreg;
-#[cfg(windows)] extern crate winapi;
-#[cfg(windows)] extern crate user32;
+#[cfg(windows)]
+extern crate user32;
+#[cfg(windows)]
+extern crate winapi;
+#[cfg(windows)]
+extern crate winreg;
 
 mod error;
+mod margins;
 mod output_format;
 mod output_level;
-mod margins;
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::env::current_dir;
+use std::fs::DirBuilder;
 use std::io::{self, Read};
-use std::fs::{DirBuilder};
-use std::env::{current_dir};
-use std::process::{exit};
 use std::path::{Path, PathBuf};
-use std::time::{Duration};
+use std::process::exit;
+use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use chrono::offset::Utc;
 use chrono::prelude::*;
-use chrono::offset::{Utc};
 
-use image::{GenericImage, ImageBuffer, ImageFormat, load_from_memory_with_format};
+use image::{load_from_memory_with_format, GenericImage, ImageBuffer, ImageFormat};
 
 use clap::{App, Arg};
 
 use rayon::prelude::*;
 
-use self::error::{AppErr};
-use self::output_format::{OutputFormat};
-use self::output_level::{OutputLevel};
-use self::margins::{Margins};
+use self::error::AppErr;
+use self::margins::Margins;
+use self::output_format::OutputFormat;
+use self::output_level::OutputLevel;
 
 #[cfg(debug_assertions)]
-fn initialize_logger () -> io::Result<()> {
+fn initialize_logger() -> io::Result<()> {
     simple_logging::log_to_stderr(log::LogLevelFilter::Info)
         .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
 }
 
 #[cfg(not(debug_assertions))]
-fn initialize_logger () -> io::Result<()> {
+fn initialize_logger() -> io::Result<()> {
     simple_logging::log_to_file("himawari-desktop-updater.log", log::LogLevelFilter::Info)
 }
 
-fn main () {
-
+fn main() {
     // Initialize logger...
     initialize_logger().unwrap();
-    
+
     // NOTE: Args are still parsed in Release mode but the program is headless so there is no way to print out help
-    let args = 
+    let args =
         App::new("himawari-desktop-updater")
             .version("0.1")
             .about("Downloads the latest photo from the Himawari-8 geo-synchronous satellite and sets it as your desktop background.")
@@ -120,44 +122,41 @@ fn main () {
             .get_matches();
 
     // If set, write only to "latest.png"
-    let store_latest_only =
-        args.is_present("store-latest-only");
+    let store_latest_only = args.is_present("store-latest-only");
 
     // If set, overwrite output image
-    let force =
-        args.is_present("force");
+    let force = args.is_present("force");
 
     // Try to set the desktop background?
-    let try_set_wallpaper =
-        args.is_present("set-wallpaper");
+    let try_set_wallpaper = args.is_present("set-wallpaper");
 
     // Directory to write images out to
-    let output_dir = 
-        args.value_of("output-dir")
-            .map(|s| {
-                let mut path = current_dir().unwrap();
-                path.push(s);
-                path
-            })
-            .unwrap();
+    let output_dir = args
+        .value_of("output-dir")
+        .map(|s| {
+            let mut path = current_dir().unwrap();
+            path.push(s);
+            path
+        })
+        .unwrap();
 
     // Optional output image format
-    let output_format =
-        args.value_of("output-format")
-            .and_then(|s| OutputFormat::parse(s).ok())
-            .unwrap_or_else(|| OutputFormat::default());
+    let output_format = args
+        .value_of("output-format")
+        .and_then(|s| OutputFormat::parse(s).ok())
+        .unwrap_or_else(|| OutputFormat::default());
 
     // Optional output image resolution
-    let output_level =
-        args.value_of("output-level")
-            .and_then(|s| OutputLevel::parse(s).ok())
-            .unwrap_or_else(|| OutputLevel::default());
+    let output_level = args
+        .value_of("output-level")
+        .and_then(|s| OutputLevel::parse(s).ok())
+        .unwrap_or_else(|| OutputLevel::default());
 
     // Optional margins to put on the image
-    let margins =
-        args.value_of("margins")
-            .and_then(|s| Margins::parse(s).ok())
-            .unwrap_or_else(|| Margins::empty());
+    let margins = args
+        .value_of("margins")
+        .and_then(|s| Margins::parse(s).ok())
+        .unwrap_or_else(|| Margins::empty());
 
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);
@@ -165,19 +164,31 @@ fn main () {
     info!("output-dir: {}", output_dir.display());
     info!("output-format: {}", output_format);
     info!("output-level: {}", output_level);
-    info!("margins: {}, {}, {}, {}", margins.top, margins.right, margins.bottom, margins.left);
-    
-    let result =
-        download_latest_himawari_image(store_latest_only, force, margins, &output_dir, output_format, output_level)
-            .and_then(|image_path| {
-                if try_set_wallpaper { set_wallpaper(&image_path) }
-                else { Ok(()) }
-            });
+    info!(
+        "margins: {}, {}, {}, {}",
+        margins.top, margins.right, margins.bottom, margins.left
+    );
+
+    let result = download_latest_himawari_image(
+        store_latest_only,
+        force,
+        margins,
+        &output_dir,
+        output_format,
+        output_level,
+    )
+    .and_then(|image_path| {
+        if try_set_wallpaper {
+            set_wallpaper(&image_path)
+        } else {
+            Ok(())
+        }
+    });
 
     match result {
         Ok(()) => {
             info!("Done");
-        },
+        }
         Err(app_err) => {
             error!("{}", app_err);
             exit(1);
@@ -187,7 +198,7 @@ fn main () {
 
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
-fn download_json<T: serde::de::DeserializeOwned> (url: &str) -> Result<T, AppErr> {
+fn download_json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T, AppErr> {
     let client = reqwest::blocking::Client::builder()
         .timeout(DOWNLOAD_TIMEOUT)
         .build()?;
@@ -195,7 +206,7 @@ fn download_json<T: serde::de::DeserializeOwned> (url: &str) -> Result<T, AppErr
     Ok(result)
 }
 
-fn download_bytes (url: &str) -> Result<Vec<u8>, AppErr> {
+fn download_bytes(url: &str) -> Result<Vec<u8>, AppErr> {
     let client = reqwest::blocking::Client::builder()
         .timeout(DOWNLOAD_TIMEOUT)
         .build()?;
@@ -208,23 +219,21 @@ fn download_bytes (url: &str) -> Result<Vec<u8>, AppErr> {
 #[derive(Serialize, Deserialize, Debug)]
 struct LatestInfo {
     date: String,
-    file: String
+    file: String,
 }
 
-fn download_latest_himawari_image (
+fn download_latest_himawari_image(
     store_latest_only: bool,
     force: bool,
     margins: Margins,
     output_dir: &Path,
     output_format: OutputFormat,
-    output_level: OutputLevel) -> Result<PathBuf, AppErr> {
-
+    output_level: OutputLevel,
+) -> Result<PathBuf, AppErr> {
     // Prepare the output folder
     info!("Preparing output dir...");
     if !output_dir.exists() {
-        DirBuilder::new()
-            .recursive(true)
-            .create(&output_dir)?;
+        DirBuilder::new().recursive(true).create(&output_dir)?;
     }
 
     const HIMAWARI_BASE_URL: &'static str = "https://himawari8-dl.nict.go.jp/himawari8/img/D531106";
@@ -243,36 +252,44 @@ fn download_latest_himawari_image (
     let width = 550;
     // Level can be 4, 8, 16, 20
     let level = output_level.to_level();
-    let time  = latest_date.format("%H%M%S");
-    let year  = latest_date.format("%Y");
+    let time = latest_date.format("%H%M%S");
+    let year = latest_date.format("%Y");
     let month = latest_date.format("%m");
-    let day   = latest_date.format("%d");
+    let day = latest_date.format("%d");
 
     // The filename that will be written
     let mut output_file_path = output_dir.to_path_buf();
     if store_latest_only {
         output_file_path.push(format!("himawari8_latest.{}", output_format));
     } else {
-        output_file_path.push(format!("himawari8_{}{}{}_{}.{}", year, month, day, time, output_format));
+        output_file_path.push(format!(
+            "himawari8_{}{}{}_{}.{}",
+            year, month, day, time, output_format
+        ));
     }
 
     // Have we already downloaded this one?
     if output_file_path.exists() && !store_latest_only && !force {
-        warn!("Output file {} already exists. Use --force to overwrite", output_file_path.display());
+        warn!(
+            "Output file {} already exists. Use --force to overwrite",
+            output_file_path.display()
+        );
         return Ok(output_file_path);
     }
 
     // For each (x, y) position in a level*level image...
-    let chunk_positions: Vec<_> =
-        (0..level).flat_map(|y| (0..level).map(move |x| (x, y)))
+    let chunk_positions: Vec<_> = (0..level)
+        .flat_map(|y| (0..level).map(move |x| (x, y)))
         .collect();
 
     // In parallel, download each chunk into memory
-    let chunks: Vec<_> = 
-        chunk_positions
+    let chunks: Vec<_> = chunk_positions
         .into_par_iter()
         .filter_map(|(x, y)| {
-            let url = format!("{}/{}d/{}/{}/{}/{}/{}_{}_{}.png", HIMAWARI_BASE_URL, level, width, year, month, day, time, x, y);
+            let url = format!(
+                "{}/{}d/{}/{}/{}/{}/{}_{}_{}.png",
+                HIMAWARI_BASE_URL, level, width, year, month, day, time, x, y
+            );
             info!("Downloading chunk {}...", url);
             match download_bytes(&url) {
                 Ok(image_data) => Some((x, y, image_data)),
@@ -306,12 +323,12 @@ fn download_latest_himawari_image (
 }
 
 #[cfg(windows)]
-fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
+fn set_wallpaper(image_path: &Path) -> Result<(), AppErr> {
     // Set registry flags to control wallpaper style
     info!("Setting Windows desktop wallpaper registry keys");
 
-    use winreg::RegKey;
     use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
+    use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key_colors = hkcu.open_subkey_with_flags("Control Panel\\Colors", KEY_WRITE)?;
@@ -324,30 +341,34 @@ fn set_wallpaper (image_path: &Path) -> Result<(), AppErr> {
 
     // Also set wallpaper and fill color through user32 API
     info!("Setting Windows desktop wallpaper");
-    
-    use std::os::windows::ffi::{OsStrExt};
+
     use std::iter::once;
-    use user32::{SystemParametersInfoW, SetSysColors};
-    use winapi::um::winnt::{PVOID};
-    use winapi::um::winuser::{SPI_SETDESKWALLPAPER, COLOR_BACKGROUND};
+    use std::os::windows::ffi::OsStrExt;
+    use user32::{SetSysColors, SystemParametersInfoW};
+    use winapi::um::winnt::PVOID;
+    use winapi::um::winuser::{COLOR_BACKGROUND, SPI_SETDESKWALLPAPER};
 
     // Background fill (black)
-    unsafe { 
+    unsafe {
         SetSysColors(1, [COLOR_BACKGROUND].as_ptr(), [0, 0, 0].as_ptr());
     }
 
     // Desktop wallpaper
     unsafe {
         // NUL-terminated unicode string
-        let path_unicode: Vec<u16> = image_path.as_os_str().encode_wide().chain(once(0)).collect();
+        let path_unicode: Vec<u16> = image_path
+            .as_os_str()
+            .encode_wide()
+            .chain(once(0))
+            .collect();
         SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, path_unicode.as_ptr() as PVOID, 0);
     }
-    
+
     Ok(())
 }
 
 #[cfg(not(windows))]
-fn set_wallpaper (_image_path: &Path) -> Result<(), AppErr> {
+fn set_wallpaper(_image_path: &Path) -> Result<(), AppErr> {
     // TODO: Linux/OSX versions of set_wallpaper?
     warn!("Setting the wallpaper is not supported on this platform");
     Ok(())

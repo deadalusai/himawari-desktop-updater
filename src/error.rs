@@ -1,16 +1,17 @@
-use std::fmt::{Debug, Display, Formatter, Error as FmtError};
-use std::error::{Error};
+use std::error::Error;
+use std::fmt::{Debug, Display, Error as FmtError, Formatter};
 
 pub struct AppErr(String, Option<Box<dyn Error>>);
 
 impl AppErr {
-    fn from_err <E> (kind: &str, error: E) -> AppErr
-        where E: Error + 'static
+    fn from_err<E>(kind: &str, error: E) -> AppErr
+    where
+        E: Error + 'static,
     {
         AppErr(format!("[{}] {}", kind, error), Some(Box::new(error)))
     }
 
-    pub fn new (kind: &str, message: &str) -> AppErr {
+    pub fn new(kind: &str, message: &str) -> AppErr {
         AppErr(format!("[{}] {}", kind, message), None)
     }
 }
@@ -28,14 +29,14 @@ impl Debug for AppErr {
 }
 
 impl Error for AppErr {
-    fn description (&self) -> &str {
+    fn description(&self) -> &str {
         &self.0
     }
 
-    fn source (&self) -> Option<&(dyn Error + 'static)> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self.1 {
             Some(ref err) => Some(err.as_ref()),
-            None          => None
+            None => None,
         }
     }
 }
@@ -47,7 +48,7 @@ macro_rules! impl_from_error {
                 AppErr::from_err(stringify!($type), err)
             }
         }
-    }
+    };
 }
 
 // Error conversions
