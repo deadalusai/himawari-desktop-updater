@@ -36,7 +36,6 @@ use self::ffi_unix::set_wallpaper;
 
 fn make_clap_command() -> clap::Command {
     use clap::{Command, Arg, ArgAction};
-    // NOTE: Args are still parsed in Release mode but the program is headless so there is no way to print out help
     Command::new("himawari-desktop-updater")
         .version("0.1")
         .about("Downloads the latest photo from the Himawari-8 geo-synchronous satellite and sets it as your desktop background.")
@@ -93,11 +92,29 @@ fn initialize_logger() {
     simple_logging::log_to_file("himawari-desktop-updater.log", log::LevelFilter::Info).expect("Failed to open log file for writing");
 }
 
+#[cfg(debug_assertions)]
+fn print_clap_err(e: clap::error::Error) {
+    e.print().unwrap()
+}
+
+#[cfg(not(debug_assertions))]
+fn print_clap_err(e: clap::error::Error) {
+    // NOTE: In Release mode the program is headless (under windows) so there so print help to the log stream which will
+    // redirect it to the right place.
+    error!("{}", e);
+}
+
 fn main() {
     // Initialize logger...
     initialize_logger();
     
-    let args = make_clap_command().get_matches();
+    let args = match make_clap_command().try_get_matches() {
+        Err(e) => {
+            print_clap_err(e);
+            return;
+        },
+        Ok(args) => args,
+    };
 
     // If set, write only to "latest.png"
     let store_latest_only = args.get_flag("store-latest-only");
