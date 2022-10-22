@@ -1,4 +1,4 @@
-use error::AppErr;
+use crate::error::AppErr;
 
 pub struct Margins {
     pub top: u32,

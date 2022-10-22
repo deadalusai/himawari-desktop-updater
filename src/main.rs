@@ -1,25 +1,6 @@
 // NOTE: Set "windows" subsystem for release builds
 // This disables console output, which prevents a console window from opening and stealing focus when running this program as a scheduled task.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
-
-extern crate reqwest;
-#[macro_use]
-extern crate serde_derive;
-extern crate chrono;
-extern crate clap;
-extern crate image;
-extern crate serde;
-extern crate serde_json;
-#[macro_use]
-extern crate log;
-extern crate rayon;
-extern crate simple_logging;
-
-#[cfg(windows)]
-extern crate winapi;
-#[cfg(windows)]
-extern crate winreg;
-
 mod error;
 mod margins;
 mod output_format;
@@ -31,7 +12,7 @@ mod ffi_unix;
 
 use std::env::current_dir;
 use std::fs::DirBuilder;
-use std::io::{self, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::Duration;
@@ -42,6 +23,8 @@ use chrono::prelude::*;
 use image::{load_from_memory_with_format, GenericImage, ImageBuffer, ImageFormat};
 use clap::{App, Arg};
 use rayon::prelude::*;
+use log::{info, warn, error};
+use serde_derive::{Deserialize};
 
 use self::error::AppErr;
 use self::margins::Margins;
@@ -52,77 +35,78 @@ use self::ffi_windows::set_wallpaper;
 #[cfg(not(windows))]
 use self::ffi_unix::set_wallpaper;
 
+fn make_clap_app() -> App<'static, 'static> {
+    // NOTE: Args are still parsed in Release mode but the program is headless so there is no way to print out help
+    App::new("himawari-desktop-updater")
+        .version("0.1")
+        .about("Downloads the latest photo from the Himawari-8 geo-synchronous satellite and sets it as your desktop background.")
+        .author("Benjamin Fox")
+
+        .arg(Arg::with_name("store-latest-only")
+            .long("store-latest-only")
+            .help("If set, writes the output to a single file named 'latest'"))
+
+        .arg(Arg::with_name("force")
+            .long("force")
+            .help("If set, allow the output file to be overwritten"))
+
+        .arg(Arg::with_name("set-wallpaper")
+            .long("set-wallpaper")
+            .help("If set, attempts to set the current user's desktop background to the output image"))
+
+        .arg(Arg::with_name("output-dir")
+            .long("output-dir")
+            .help("Set the output directory")
+            .required(true)
+            .value_name("OUTPUT_DIR"))
+
+        .arg(Arg::with_name("output-format")
+            .long("output-format")
+            .help("Set the output format, PNG or JPEG (default)")
+            .validator(|s| {
+                OutputFormat::parse(&s)
+                    .map(|_| ())
+                    .map_err(|err| err.to_string())
+            })
+            .value_name("OUTPUT_FORMAT"))
+
+        .arg(Arg::with_name("output-level")
+            .long("output-level")
+            .help("Set the dimensions of the output image: 4, 8, 16 or 20. ")
+            .validator(|s| {
+                OutputLevel::parse(&s)
+                    .map(|_| ())
+                    .map_err(|err| err.to_string())
+            })
+            .value_name("OUTPUT_LEVEL"))
+
+        .arg(Arg::with_name("margins")
+            .long("margins")
+            .help("Set top,right,bottom,left margins on the output image")
+            .validator(|s| {
+                Margins::parse(&s)
+                    .map(|_| ())
+                    .map_err(|err| err.to_string())
+            })
+            .value_name("TOP,RIGHT,BOTTOM,LEFT"))
+}
+
 #[cfg(debug_assertions)]
-fn initialize_logger() -> io::Result<()> {
-    simple_logging::log_to_stderr(log::LogLevelFilter::Info)
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+fn initialize_logger() {
+    simple_logging::log_to_stderr(log::LevelFilter::Info);
 }
 
 #[cfg(not(debug_assertions))]
-fn initialize_logger() -> io::Result<()> {
-    simple_logging::log_to_file("himawari-desktop-updater.log", log::LogLevelFilter::Info)
+fn initialize_logger() {
+    // In release builds the program runs as a "headless" application (under Windows) so redirect logs to file
+    simple_logging::log_to_file("himawari-desktop-updater.log", log::LevelFilter::Info).expect("Failed to open log file for writing");
 }
 
 fn main() {
     // Initialize logger...
-    initialize_logger().unwrap();
-
-    // NOTE: Args are still parsed in Release mode but the program is headless so there is no way to print out help
-    let args =
-        App::new("himawari-desktop-updater")
-            .version("0.1")
-            .about("Downloads the latest photo from the Himawari-8 geo-synchronous satellite and sets it as your desktop background.")
-            .author("Benjamin Fox")
-
-            .arg(Arg::with_name("store-latest-only")
-                .long("store-latest-only")
-                .help("If set, writes the output to a single file named 'latest'"))
-
-            .arg(Arg::with_name("force")
-                .long("force")
-                .help("If set, allow the output file to be overwritten"))
-
-            .arg(Arg::with_name("set-wallpaper")
-                .long("set-wallpaper")
-                .help("If set, attempts to set the current user's desktop background to the output image"))
-
-            .arg(Arg::with_name("output-dir")
-                .long("output-dir")
-                .help("Set the output directory")
-                .required(true)
-                .value_name("OUTPUT_DIR"))
-
-            .arg(Arg::with_name("output-format")
-                .long("output-format")
-                .help("Set the output format, PNG or JPEG (default)")
-                .validator(|s| {
-                    OutputFormat::parse(&s)
-                        .map(|_| ())
-                        .map_err(|err| err.to_string())
-                })
-                .value_name("OUTPUT_FORMAT"))
-
-            .arg(Arg::with_name("output-level")
-                .long("output-level")
-                .help("Set the dimensions of the output image: 4, 8, 16 or 20. ")
-                .validator(|s| {
-                    OutputLevel::parse(&s)
-                        .map(|_| ())
-                        .map_err(|err| err.to_string())
-                })
-                .value_name("OUTPUT_LEVEL"))
-
-            .arg(Arg::with_name("margins")
-                .long("margins")
-                .help("Set top,right,bottom,left margins on the output image")
-                .validator(|s| {
-                    Margins::parse(&s)
-                        .map(|_| ())
-                        .map_err(|err| err.to_string())
-                })
-                .value_name("TOP,RIGHT,BOTTOM,LEFT"))
-
-            .get_matches();
+    initialize_logger();
+    
+    let args = make_clap_app().get_matches();
 
     // If set, write only to "latest.png"
     let store_latest_only = args.is_present("store-latest-only");
@@ -219,7 +203,7 @@ fn download_bytes(url: &str) -> Result<Vec<u8>, AppErr> {
     Ok(data)
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct LatestInfo {
     date: String,
     file: String,
@@ -249,7 +233,7 @@ fn download_latest_himawari_image(
     let latest_info: LatestInfo = download_json(&url)?;
     let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?;
 
-    info!("Latest image available: {}", latest_date);
+    info!("Latest image available is {} with timestamp {}", latest_info.file, latest_date);
 
     // Width and Level determine the dimensions and count of image fragments downloaded
     let width = 550;

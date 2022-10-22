@@ -1,4 +1,4 @@
-use error::AppErr;
+use crate::error::AppErr;
 use std::fmt::{Display, Error as FmtError, Formatter};
 
 pub enum OutputFormat {
