@@ -284,22 +284,26 @@ fn download_latest_himawari_image(
         .flat_map(|y| (0..level).map(move |x| (x, y)))
         .collect();
 
+    let download_chunk = |x: u32, y: u32| -> Result<image::DynamicImage, AppErr> {
+        let url = format!(
+            "{}/{}d/{}/{}/{}/{}/{}_{}_{}.png",
+            HIMAWARI_BASE_URL, level, width, year, month, day, time, x, y
+        );
+        info!("Downloading chunk {}...", url);
+        let image = download_bytes(&url)?;
+        let image = load_from_memory_with_format(&image, ImageFormat::PNG)?;
+        Ok(image)
+    };
+
     // In parallel, download each chunk into memory
     let chunks: Vec<_> = chunk_positions
         .into_par_iter()
-        .filter_map(|(x, y)| {
-            let url = format!(
-                "{}/{}d/{}/{}/{}/{}/{}_{}_{}.png",
-                HIMAWARI_BASE_URL, level, width, year, month, day, time, x, y
-            );
-            info!("Downloading chunk {}...", url);
-            match download_bytes(&url) {
-                Ok(image_data) => Some((x, y, image_data)),
-                Err(err) => {
-                    // For now, just leave a hole in the final image
-                    warn!("{}", err);
-                    None
-                }
+        .filter_map(|(x, y)| match download_chunk(x, y) {
+            Ok(c) => Some((x, y, c)),
+            Err(err) => {
+                // For now, just leave a hole in the final image
+                warn!("{}", err);
+                None
             }
         })
         .collect();
@@ -308,18 +312,17 @@ fn download_latest_himawari_image(
     let w = margins.left + (width * level) + margins.right;
     let h = margins.top + (width * level) + margins.bottom;
 
-    let mut canvas = ImageBuffer::new(w, h);
+    let mut buf = ImageBuffer::new(w, h);
 
-    for (x, y, image_data) in chunks {
-        let block = load_from_memory_with_format(&image_data, ImageFormat::PNG)?;
+    for (x, y, chunk) in chunks {
         let x = margins.left + (x * width);
         let y = margins.top + (y * width);
-        canvas.copy_from(&block, x, y);
+        buf.copy_from(&chunk, x, y);
     }
 
     // NOTE: Output format detemined by file extension (jpeg or png)
     info!("Writing out to {}", output_file_path.display());
-    canvas.save(output_file_path.as_path())?;
+    buf.save(output_file_path.as_path())?;
 
     Ok(output_file_path)
 }
