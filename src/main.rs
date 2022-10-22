@@ -2,13 +2,13 @@
 // This disables console output, which prevents a console window from opening and stealing focus when running this program as a scheduled task.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod error;
+#[cfg(not(windows))]
+mod ffi_unix;
+#[cfg(windows)]
+mod ffi_windows;
 mod margins;
 mod output_format;
 mod output_level;
-#[cfg(windows)]
-mod ffi_windows;
-#[cfg(not(windows))]
-mod ffi_unix;
 
 use std::env::current_dir;
 use std::fs::DirBuilder;
@@ -21,21 +21,21 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::offset::Utc;
 use chrono::prelude::*;
 use image::{load_from_memory_with_format, GenericImage, ImageBuffer, ImageFormat};
+use log::{error, info, warn};
 use rayon::prelude::*;
-use log::{info, warn, error};
-use serde_derive::{Deserialize};
+use serde_derive::Deserialize;
 
 use self::error::AppErr;
+#[cfg(not(windows))]
+use self::ffi_unix::set_wallpaper;
+#[cfg(windows)]
+use self::ffi_windows::set_wallpaper;
 use self::margins::{Margins, MarginsValueParser};
 use self::output_format::{OutputFormat, OutputFormatValueParser};
 use self::output_level::{OutputLevel, OutputLevelValueParser};
-#[cfg(windows)]
-use self::ffi_windows::set_wallpaper;
-#[cfg(not(windows))]
-use self::ffi_unix::set_wallpaper;
 
 fn make_clap_command() -> clap::Command {
-    use clap::{Command, Arg, ArgAction};
+    use clap::{Arg, ArgAction, Command};
     Command::new("himawari-desktop-updater")
         .version("0.1")
         .about("Downloads the latest photo from the Himawari-8 geo-synchronous satellite and sets it as your desktop background.")
@@ -89,7 +89,8 @@ fn initialize_logger() {
 #[cfg(not(debug_assertions))]
 fn initialize_logger() {
     // In release builds the program runs as a "headless" application (under Windows) so redirect logs to file
-    simple_logging::log_to_file("himawari-desktop-updater.log", log::LevelFilter::Info).expect("Failed to open log file for writing");
+    simple_logging::log_to_file("himawari-desktop-updater.log", log::LevelFilter::Info)
+        .expect("Failed to open log file for writing");
 }
 
 #[cfg(debug_assertions)]
@@ -107,12 +108,12 @@ fn print_clap_err(e: clap::error::Error) {
 fn main() {
     // Initialize logger...
     initialize_logger();
-    
+
     let args = match make_clap_command().try_get_matches() {
         Err(e) => {
             print_clap_err(e);
             return;
-        },
+        }
         Ok(args) => args,
     };
 
@@ -136,22 +137,22 @@ fn main() {
         .unwrap();
 
     // Optional output image format
-    let output_format = match args.get_one::<OutputFormat>("output-format") {
-        Some(o) => o.clone(),
-        None => OutputFormat::default(),
-    };
+    let output_format = args
+        .get_one::<OutputFormat>("output-format")
+        .cloned()
+        .unwrap_or_default();
 
     // Optional output image resolution
-    let output_level = match args.get_one::<OutputLevel>("output-level") {
-        Some(o) => o.clone(),
-        None => OutputLevel::default(),
-    };
+    let output_level = args
+        .get_one::<OutputLevel>("output-level")
+        .cloned()
+        .unwrap_or_default();
 
     // Optional margins to put on the image
-    let margins = match args.get_one::<Margins>("margins") {
-        Some(m) => m.clone(),
-        None => Margins::empty(),
-    };
+    let margins = args
+        .get_one::<Margins>("margins")
+        .cloned()
+        .unwrap_or_default();
 
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);
@@ -234,14 +235,20 @@ fn download_latest_himawari_image(
     const HIMAWARI_BASE_URL: &'static str = "https://himawari8-dl.nict.go.jp/himawari8/img/D531106";
 
     // Download and parse the "latest.json" metadata
-    let cache_buster = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let cache_buster = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     info!("Downloading latest metadata...");
     let url = format!("{}/latest.json?_={}", HIMAWARI_BASE_URL, cache_buster);
 
     let latest_info: LatestInfo = download_json(&url)?;
     let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?;
 
-    info!("Latest image available is {} with timestamp {}", latest_info.file, latest_date);
+    info!(
+        "Latest image available is {} with timestamp {}",
+        latest_info.file, latest_date
+    );
 
     // Width and Level determine the dimensions and count of image fragments downloaded
     let width = 550;
