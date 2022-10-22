@@ -291,7 +291,7 @@ fn download_latest_himawari_image(
         );
         info!("Downloading chunk {}...", url);
         let image = download_bytes(&url)?;
-        let image = load_from_memory_with_format(&image, ImageFormat::PNG)?;
+        let image = load_from_memory_with_format(&image, ImageFormat::Png)?;
         Ok(image)
     };
 
@@ -317,7 +317,7 @@ fn download_latest_himawari_image(
     for (x, y, chunk) in chunks {
         let x = margins.left + (x * width);
         let y = margins.top + (y * width);
-        buf.copy_from(&chunk, x, y);
+        buf.copy_from(&chunk, x, y)?;
     }
 
     // NOTE: Output format detemined by file extension (jpeg or png)
