@@ -52,18 +52,9 @@ macro_rules! impl_from_error {
 }
 
 // Error conversions
-use std;
 impl_from_error!(std::io::Error);
 impl_from_error!(std::time::SystemTimeError);
-
-use reqwest;
 impl_from_error!(reqwest::Error);
-
-use serde_json;
 impl_from_error!(serde_json::Error);
-
-use chrono;
 impl_from_error!(chrono::ParseError);
-
-use image;
 impl_from_error!(image::ImageError);

@@ -16,8 +16,6 @@ extern crate rayon;
 extern crate simple_logging;
 
 #[cfg(windows)]
-extern crate user32;
-#[cfg(windows)]
 extern crate winapi;
 #[cfg(windows)]
 extern crate winreg;
@@ -26,6 +24,10 @@ mod error;
 mod margins;
 mod output_format;
 mod output_level;
+#[cfg(windows)]
+mod ffi_windows;
+#[cfg(not(windows))]
+mod ffi_unix;
 
 use std::env::current_dir;
 use std::fs::DirBuilder;
@@ -37,17 +39,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::offset::Utc;
 use chrono::prelude::*;
-
 use image::{load_from_memory_with_format, GenericImage, ImageBuffer, ImageFormat};
-
 use clap::{App, Arg};
-
 use rayon::prelude::*;
 
 use self::error::AppErr;
 use self::margins::Margins;
 use self::output_format::OutputFormat;
 use self::output_level::OutputLevel;
+#[cfg(windows)]
+use self::ffi_windows::set_wallpaper;
+#[cfg(not(windows))]
+use self::ffi_unix::set_wallpaper;
 
 #[cfg(debug_assertions)]
 fn initialize_logger() -> io::Result<()> {
@@ -320,56 +323,4 @@ fn download_latest_himawari_image(
     canvas.save(output_file_path.as_path())?;
 
     Ok(output_file_path)
-}
-
-#[cfg(windows)]
-fn set_wallpaper(image_path: &Path) -> Result<(), AppErr> {
-    // Set registry flags to control wallpaper style
-    info!("Setting Windows desktop wallpaper registry keys");
-
-    use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
-    use winreg::RegKey;
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key_colors = hkcu.open_subkey_with_flags("Control Panel\\Colors", KEY_WRITE)?;
-    key_colors.set_value("Background", &"0 0 0")?; // Black background
-
-    let key_desktop = hkcu.open_subkey_with_flags("Control Panel\\Desktop", KEY_WRITE)?;
-    key_desktop.set_value("Wallpaper", &image_path.as_os_str())?; // Wallpaper path
-    key_desktop.set_value("WallpaperStyle", &"6")?; // Style "Fit"
-    key_desktop.set_value("TileWallpaper", &"0")?; // Tiling disabled
-
-    // Also set wallpaper and fill color through user32 API
-    info!("Setting Windows desktop wallpaper");
-
-    use std::iter::once;
-    use std::os::windows::ffi::OsStrExt;
-    use user32::{SetSysColors, SystemParametersInfoW};
-    use winapi::um::winnt::PVOID;
-    use winapi::um::winuser::{COLOR_BACKGROUND, SPI_SETDESKWALLPAPER};
-
-    // Background fill (black)
-    unsafe {
-        SetSysColors(1, [COLOR_BACKGROUND].as_ptr(), [0, 0, 0].as_ptr());
-    }
-
-    // Desktop wallpaper
-    unsafe {
-        // NUL-terminated unicode string
-        let path_unicode: Vec<u16> = image_path
-            .as_os_str()
-            .encode_wide()
-            .chain(once(0))
-            .collect();
-        SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, path_unicode.as_ptr() as PVOID, 0);
-    }
-
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn set_wallpaper(_image_path: &Path) -> Result<(), AppErr> {
-    // TODO: Linux/OSX versions of set_wallpaper?
-    warn!("Setting the wallpaper is not supported on this platform");
-    Ok(())
 }
