@@ -1,20 +1,22 @@
-use crate::error::AppErr;
 use std::fmt::{Display, Error as FmtError, Formatter};
 
+#[derive(Clone)]
 pub enum OutputFormat {
     PNG,
     JPEG,
 }
 
-impl OutputFormat {
-    pub fn parse(s: &str) -> Result<OutputFormat, AppErr> {
-        match s.trim() {
+#[derive(Clone)]
+pub struct OutputFormatValueParser;
+
+impl clap::builder::TypedValueParser for OutputFormatValueParser {
+    type Value = OutputFormat;
+    fn parse_ref(&self, _cmd: &clap::Command, _arg: Option<&clap::Arg>, value: &std::ffi::OsStr) -> Result<Self::Value, clap::Error> {
+        use clap::error::{Error, ErrorKind};
+        match value.to_string_lossy().as_ref().trim() {
             "PNG" | "png" => Ok(OutputFormat::PNG),
             "JPEG" | "jpeg" => Ok(OutputFormat::JPEG),
-            _ => Err(AppErr::new(
-                "output-format",
-                "Invalid image format, use JPEG or PNG",
-            )),
+            _ => Err(Error::raw(ErrorKind::InvalidValue, "Invalid image format, use JPEG or PNG")),
         }
     }
 }

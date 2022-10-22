@@ -10,10 +10,6 @@ impl AppErr {
     {
         AppErr(format!("[{}] {}", kind, error), Some(Box::new(error)))
     }
-
-    pub fn new(kind: &str, message: &str) -> AppErr {
-        AppErr(format!("[{}] {}", kind, message), None)
-    }
 }
 
 impl Display for AppErr {

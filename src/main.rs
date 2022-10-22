@@ -21,74 +21,65 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::offset::Utc;
 use chrono::prelude::*;
 use image::{load_from_memory_with_format, GenericImage, ImageBuffer, ImageFormat};
-use clap::{App, Arg};
 use rayon::prelude::*;
 use log::{info, warn, error};
 use serde_derive::{Deserialize};
 
 use self::error::AppErr;
-use self::margins::Margins;
-use self::output_format::OutputFormat;
-use self::output_level::OutputLevel;
+use self::margins::{Margins, MarginsValueParser};
+use self::output_format::{OutputFormat, OutputFormatValueParser};
+use self::output_level::{OutputLevel, OutputLevelValueParser};
 #[cfg(windows)]
 use self::ffi_windows::set_wallpaper;
 #[cfg(not(windows))]
 use self::ffi_unix::set_wallpaper;
 
-fn make_clap_app() -> App<'static, 'static> {
+fn make_clap_command() -> clap::Command {
+    use clap::{Command, Arg, ArgAction};
     // NOTE: Args are still parsed in Release mode but the program is headless so there is no way to print out help
-    App::new("himawari-desktop-updater")
+    Command::new("himawari-desktop-updater")
         .version("0.1")
         .about("Downloads the latest photo from the Himawari-8 geo-synchronous satellite and sets it as your desktop background.")
         .author("Benjamin Fox")
 
-        .arg(Arg::with_name("store-latest-only")
+        .arg(Arg::new("store-latest-only")
             .long("store-latest-only")
-            .help("If set, writes the output to a single file named 'latest'"))
+            .help("If set, writes the output to a single file named 'latest'")
+            .action(ArgAction::SetTrue))
 
-        .arg(Arg::with_name("force")
+        .arg(Arg::new("force")
             .long("force")
-            .help("If set, allow the output file to be overwritten"))
+            .help("If set, allow the output file to be overwritten")
+            .action(ArgAction::SetTrue))
 
-        .arg(Arg::with_name("set-wallpaper")
+        .arg(Arg::new("set-wallpaper")
             .long("set-wallpaper")
-            .help("If set, attempts to set the current user's desktop background to the output image"))
+            .help("If set, attempts to set the current user's desktop background to the output image")
+            .action(ArgAction::SetTrue))
 
-        .arg(Arg::with_name("output-dir")
+        .arg(Arg::new("output-dir")
             .long("output-dir")
             .help("Set the output directory")
             .required(true)
             .value_name("OUTPUT_DIR"))
 
-        .arg(Arg::with_name("output-format")
+        .arg(Arg::new("output-format")
             .long("output-format")
-            .help("Set the output format, PNG or JPEG (default)")
-            .validator(|s| {
-                OutputFormat::parse(&s)
-                    .map(|_| ())
-                    .map_err(|err| err.to_string())
-            })
-            .value_name("OUTPUT_FORMAT"))
+            .help("Set the output format")
+            .value_name("OUTPUT_FORMAT")
+            .value_parser(OutputFormatValueParser))
 
-        .arg(Arg::with_name("output-level")
+        .arg(Arg::new("output-level")
             .long("output-level")
             .help("Set the dimensions of the output image: 4, 8, 16 or 20. ")
-            .validator(|s| {
-                OutputLevel::parse(&s)
-                    .map(|_| ())
-                    .map_err(|err| err.to_string())
-            })
-            .value_name("OUTPUT_LEVEL"))
+            .value_name("OUTPUT_LEVEL")
+            .value_parser(OutputLevelValueParser))
 
-        .arg(Arg::with_name("margins")
+        .arg(Arg::new("margins")
             .long("margins")
             .help("Set top,right,bottom,left margins on the output image")
-            .validator(|s| {
-                Margins::parse(&s)
-                    .map(|_| ())
-                    .map_err(|err| err.to_string())
-            })
-            .value_name("TOP,RIGHT,BOTTOM,LEFT"))
+            .value_name("TOP,RIGHT,BOTTOM,LEFT")
+            .value_parser(MarginsValueParser))
 }
 
 #[cfg(debug_assertions)]
@@ -106,20 +97,20 @@ fn main() {
     // Initialize logger...
     initialize_logger();
     
-    let args = make_clap_app().get_matches();
+    let args = make_clap_command().get_matches();
 
     // If set, write only to "latest.png"
-    let store_latest_only = args.is_present("store-latest-only");
+    let store_latest_only = args.get_flag("store-latest-only");
 
     // If set, overwrite output image
-    let force = args.is_present("force");
+    let force = args.get_flag("force");
 
     // Try to set the desktop background?
-    let try_set_wallpaper = args.is_present("set-wallpaper");
+    let try_set_wallpaper = args.get_flag("set-wallpaper");
 
     // Directory to write images out to
     let output_dir = args
-        .value_of("output-dir")
+        .get_one::<String>("output-dir")
         .map(|s| {
             let mut path = current_dir().unwrap();
             path.push(s);
@@ -128,22 +119,22 @@ fn main() {
         .unwrap();
 
     // Optional output image format
-    let output_format = args
-        .value_of("output-format")
-        .and_then(|s| OutputFormat::parse(s).ok())
-        .unwrap_or_else(|| OutputFormat::default());
+    let output_format = match args.get_one::<OutputFormat>("output-format") {
+        Some(o) => o.clone(),
+        None => OutputFormat::default(),
+    };
 
     // Optional output image resolution
-    let output_level = args
-        .value_of("output-level")
-        .and_then(|s| OutputLevel::parse(s).ok())
-        .unwrap_or_else(|| OutputLevel::default());
+    let output_level = match args.get_one::<OutputLevel>("output-level") {
+        Some(o) => o.clone(),
+        None => OutputLevel::default(),
+    };
 
     // Optional margins to put on the image
-    let margins = args
-        .value_of("margins")
-        .and_then(|s| Margins::parse(s).ok())
-        .unwrap_or_else(|| Margins::empty());
+    let margins = match args.get_one::<Margins>("margins") {
+        Some(m) => m.clone(),
+        None => Margins::empty(),
+    };
 
     info!("Starting...");
     info!("store-latest-only: {}", store_latest_only);

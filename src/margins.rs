@@ -1,5 +1,4 @@
-use crate::error::AppErr;
-
+#[derive(Clone)]
 pub struct Margins {
     pub top: u32,
     pub right: u32,
@@ -7,30 +6,37 @@ pub struct Margins {
     pub left: u32,
 }
 
-impl Margins {
-    pub fn parse(input: &str) -> Result<Margins, AppErr> {
-        let fail = || AppErr::new("margins", "Use format TOP[,RIGHT][,BOTTOM][,LEFT]");
+#[derive(Clone)]
+pub struct MarginsValueParser;
 
+impl clap::builder::TypedValueParser for MarginsValueParser {
+    type Value = Margins;
+    fn parse_ref(&self, _cmd: &clap::Command, _arg: Option<&clap::Arg>, value: &std::ffi::OsStr) -> Result<Self::Value, clap::Error> {
+        use clap::error::{Error, ErrorKind};
+        match Margins::try_parse(value.to_string_lossy().as_ref()) {
+            Some(m) => Ok(m),
+            None => Err(Error::raw(ErrorKind::InvalidValue, "Use format TOP[,RIGHT][,BOTTOM][,LEFT]")),
+        }
+    }
+}
+
+impl Margins {
+    pub fn try_parse(input: &str) -> Option<Margins> {
         let mut parts = input
             .split(",")
             .map(|s| s.trim())
-            .map(|n| n.parse::<u32>().map_err(|_| fail()));
+            .map(|n| n.parse::<u32>());
 
-        let top = parts.next().unwrap_or(Ok(0))?;
-        let right = parts.next().unwrap_or(Ok(top))?;
-        let bottom = parts.next().unwrap_or(Ok(top))?;
-        let left = parts.next().unwrap_or(Ok(right))?;
+        let top = parts.next().unwrap_or(Ok(0)).ok()?;
+        let right = parts.next().unwrap_or(Ok(top)).ok()?;
+        let bottom = parts.next().unwrap_or(Ok(top)).ok()?;
+        let left = parts.next().unwrap_or(Ok(right)).ok()?;
 
         if parts.next().is_some() {
-            return Err(fail());
+            return None;
         }
 
-        Ok(Margins {
-            top,
-            right,
-            bottom,
-            left,
-        })
+        Some(Margins { top, right, bottom, left })
     }
 
     pub fn empty() -> Margins {
