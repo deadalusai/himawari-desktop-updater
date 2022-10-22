@@ -1,6 +1,6 @@
-use std::path::Path;
-use log::{info};
 use crate::error::AppErr;
+use log::info;
+use std::path::Path;
 
 pub fn set_wallpaper(image_path: &Path) -> Result<(), AppErr> {
     // Set registry flags to control wallpaper style
@@ -21,7 +21,9 @@ pub fn set_wallpaper(image_path: &Path) -> Result<(), AppErr> {
     info!("Setting Windows desktop wallpaper");
 
     use winapi::um::winnt::PVOID;
-    use winapi::um::winuser::{COLOR_BACKGROUND, SPI_SETDESKWALLPAPER, SetSysColors, SystemParametersInfoW};
+    use winapi::um::winuser::{
+        SetSysColors, SystemParametersInfoW, COLOR_BACKGROUND, SPI_SETDESKWALLPAPER,
+    };
 
     // Background fill (black)
     unsafe {
@@ -41,5 +43,5 @@ fn os_str_to_wchar(oss: &std::ffi::OsStr) -> Vec<u16> {
     use std::iter::once;
     use std::os::windows::ffi::OsStrExt;
     // NUL-terminated unicode string
-    oss.encode_wide().chain(once(0)).collect() 
+    oss.encode_wide().chain(once(0)).collect()
 }
