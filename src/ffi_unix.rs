@@ -1,4 +1,6 @@
 use std::path::Path;
+use log::warn;
+
 use crate::error::AppErr;
 
 pub fn set_wallpaper(_image_path: &Path) -> Result<(), AppErr> {
