@@ -15,7 +15,7 @@ clap = "4.0.18"
 rayon = "0.9.0"
 # logging
 log = "0.4"
-simple-logging = "2.0.2"
+simplelog = "0.12.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10.1"

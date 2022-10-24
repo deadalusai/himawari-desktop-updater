@@ -81,28 +81,23 @@ fn make_clap_command() -> clap::Command {
             .value_parser(MarginsValueParser))
 }
 
-#[cfg(debug_assertions)]
+fn open_log_file() -> std::fs::File {
+    std::fs::File::options()
+        .append(true)
+        .create(true)
+        .open("himawari-desktop-updater.log")
+        .expect("Opening output log file")
+}
+
 fn initialize_logger() {
-    simple_logging::log_to_stderr(log::LevelFilter::Info);
-}
-
-#[cfg(not(debug_assertions))]
-fn initialize_logger() {
-    // In release builds the program runs as a "headless" application (under Windows) so redirect logs to file
-    simple_logging::log_to_file("himawari-desktop-updater.log", log::LevelFilter::Info)
-        .expect("Failed to open log file for writing");
-}
-
-#[cfg(debug_assertions)]
-fn print_clap_err(e: clap::error::Error) {
-    e.print().unwrap()
-}
-
-#[cfg(not(debug_assertions))]
-fn print_clap_err(e: clap::error::Error) {
-    // NOTE: In Release mode the program is headless (under windows) so there so print help to the log stream which will
-    // redirect it to the right place.
-    error!("{}", e);
+    use simplelog::*;
+    let loggers: Vec<Box<dyn SharedLogger>> = vec![
+        TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed, ColorChoice::Auto),
+        // Log to file in production builds, as the application
+        // will usually be running as a cron job or scheduled task
+        WriteLogger::new(LevelFilter::Info, Config::default(), open_log_file()),
+    ];
+    CombinedLogger::init(loggers).expect("Constructing logger");
 }
 
 fn main() {
@@ -111,7 +106,9 @@ fn main() {
 
     let args = match make_clap_command().try_get_matches() {
         Err(e) => {
-            print_clap_err(e);
+            // NOTE: In Release mode the program is headless (under windows)
+            // so print help to the log stream which will redirect it to the right place.
+            warn!("{}", e);
             return;
         }
         Ok(args) => args,
