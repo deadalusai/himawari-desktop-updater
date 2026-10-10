@@ -18,8 +18,7 @@ use std::process::exit;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::offset::Utc;
-use chrono::prelude::*;
+use chrono::NaiveDateTime;
 use image::{load_from_memory_with_format, GenericImage, ImageBuffer, ImageFormat};
 use log::{error, info, warn};
 use rayon::prelude::*;
@@ -245,7 +244,8 @@ fn download_latest_himawari_image(
     let url = format!("{}/latest.json?_={}", HIMAWARI_BASE_URL, cache_buster);
 
     let latest_info: LatestInfo = download_json(&url)?;
-    let latest_date = Utc.datetime_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?;
+    let latest_date =
+        NaiveDateTime::parse_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?.and_utc();
 
     info!(
         "Latest image available is {} with timestamp {}",
@@ -264,11 +264,10 @@ fn download_latest_himawari_image(
     // The filename that will be written
     let mut output_file_path = output_dir.to_path_buf();
     if store_latest_only {
-        output_file_path.push(format!("himawari8_latest.{}", output_format));
+        output_file_path.push(format!("himawari8_latest.{output_format}"));
     } else {
         output_file_path.push(format!(
-            "himawari8_{}{}{}_{}.{}",
-            year, month, day, time, output_format
+            "himawari8_{year}{month}{day}_{time}.{output_format}"
         ));
     }
 
@@ -288,8 +287,7 @@ fn download_latest_himawari_image(
 
     let download_chunk = |x: u32, y: u32| -> Result<image::DynamicImage, AppErr> {
         let url = format!(
-            "{}/{}d/{}/{}/{}/{}/{}_{}_{}.png",
-            HIMAWARI_BASE_URL, level, width, year, month, day, time, x, y
+            "{HIMAWARI_BASE_URL}/{level}d/{width}/{year}/{month}/{day}/{time}_{x}_{y}.png",
         );
         info!("Downloading chunk {}...", url);
         let image = download_bytes(&url)?;
