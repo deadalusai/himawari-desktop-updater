@@ -92,7 +92,12 @@ fn open_log_file() -> std::fs::File {
 fn initialize_logger() {
     use simplelog::*;
     let loggers: Vec<Box<dyn SharedLogger>> = vec![
-        TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed, ColorChoice::Auto),
+        TermLogger::new(
+            LevelFilter::Info,
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        ),
         // Log to file in production builds, as the application
         // will usually be running as a cron job or scheduled task
         WriteLogger::new(LevelFilter::Info, Config::default(), open_log_file()),
@@ -170,16 +175,16 @@ fn main() {
         output_format,
         output_level,
     )
-    .and_then(|image_path| {
+    .and_then(|path| {
         if try_set_wallpaper {
-            set_wallpaper(&image_path)
+            set_wallpaper(&path)
         } else {
             Ok(())
         }
     });
 
     match result {
-        Ok(()) => {
+        Ok(_) => {
             info!("Done");
         }
         Err(app_err) => {

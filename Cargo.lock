@@ -602,6 +602,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "simplelog",
+ "url",
  "winapi",
  "winreg",
 ]
