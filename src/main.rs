@@ -11,8 +11,10 @@ mod output_format;
 mod output_level;
 
 use std::env::current_dir;
-use std::fs::DirBuilder;
+use std::ffi::OsStr;
+use std::fs::{DirBuilder, File};
 use std::io::Read;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::Duration;
@@ -248,9 +250,27 @@ fn download_latest_himawari_image(
         NaiveDateTime::parse_from_str(&latest_info.date, "%Y-%m-%d %H:%M:%S")?.and_utc();
 
     info!(
-        "Latest image available is {} with timestamp {}",
-        latest_info.file, latest_date
+        "Latest image available is {} with timestamp {latest_date}",
+        latest_info.file
     );
+
+    let mut latest_metadata_path = output_dir.to_path_buf();
+    latest_metadata_path.push(".himawari_metadata");
+
+    // Have we already downloaded this one?
+    if !force && latest_metadata_path.exists() {
+        // Check the metadata file
+        if let Some(metadata) = read_metadata_file(&latest_metadata_path)? {
+            if &metadata.date == &latest_info.date {
+                info!(
+                    "Latest image with timestamp {} already on disk as {}. Use --force to override.",
+                    metadata.date,
+                    metadata.path.display()
+                );
+                return Ok(metadata.path);
+            }
+        }
+    }
 
     // Width and Level determine the dimensions and count of image fragments downloaded
     let width = 550;
@@ -269,15 +289,6 @@ fn download_latest_himawari_image(
         output_file_path.push(format!(
             "himawari8_{year}{month}{day}_{time}.{output_format}"
         ));
-    }
-
-    // Have we already downloaded this one?
-    if output_file_path.exists() && !store_latest_only && !force {
-        warn!(
-            "Output file {} already exists. Use --force to overwrite",
-            output_file_path.display()
-        );
-        return Ok(output_file_path);
     }
 
     // For each (x, y) position in a level*level image...
@@ -324,5 +335,48 @@ fn download_latest_himawari_image(
     info!("Writing out to {}", output_file_path.display());
     buf.save(output_file_path.as_path())?;
 
+    // Update the metadata file
+    info!("Writing metadata");
+    write_metadata_file(
+        &latest_metadata_path,
+        MetadataFile {
+            path: output_file_path.clone(),
+            date: latest_info.date,
+        },
+    )?;
+
     Ok(output_file_path)
+}
+
+struct MetadataFile {
+    pub path: PathBuf,
+    pub date: String,
+}
+
+fn read_metadata_file(latest_metadata_path: &Path) -> Result<Option<MetadataFile>, AppErr> {
+    let mut file = File::open(latest_metadata_path)?;
+    let mut contents = Vec::new();
+    file.read_to_end(&mut contents)?;
+    let mut parts = contents.splitn(2, |b| b == &b'=');
+    let filename = parts
+        .next()
+        .map(|f| Path::new(OsStr::from_bytes(f)).to_path_buf());
+    let timestamp = parts.next().map(|t| String::from_utf8_lossy(t).to_string());
+    let result = match (filename, timestamp) {
+        (Some(filename), Some(timestamp)) => Some(MetadataFile {
+            path: filename,
+            date: timestamp,
+        }),
+        _ => None,
+    };
+    Ok(result)
+}
+
+fn write_metadata_file(latest_metadata_path: &Path, metadata: MetadataFile) -> Result<(), AppErr> {
+    let mut contents = Vec::new();
+    contents.extend_from_slice(metadata.path.as_os_str().as_bytes());
+    contents.push(b'=');
+    contents.extend_from_slice(metadata.date.as_bytes());
+    std::fs::write(latest_metadata_path, contents)?;
+    Ok(())
 }
